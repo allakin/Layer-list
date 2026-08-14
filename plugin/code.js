@@ -2773,7 +2773,7 @@ async function handleMessage(msg) {
       const nodes = await selectedNodes();
       const out = [];
       for (const node of nodes) {
-        const reactions = await node.getReactionsAsync();
+        const reactions = await readReactions(node);
         for (let i = 0; i < reactions.length; i++) {
           out.push({
             nodeId: node.id,
@@ -2787,7 +2787,8 @@ async function handleMessage(msg) {
       figma.ui.postMessage({
         type: "reactions",
         reactions: out,
-        flowStarts: figma.currentPage.flowStartingPoints.map((f) => ({ id: f.nodeId, name: f.name }))
+        flowStarts: safe(() => figma.currentPage.flowStartingPoints
+          .map((f) => ({ id: f.nodeId, name: f.name })), [])
       });
       return;
     }
@@ -2795,7 +2796,11 @@ async function handleMessage(msg) {
     case "removeReaction": {
       const node = await figma.getNodeByIdAsync(msg.nodeId);
       if (!node) return;
-      const reactions = await node.getReactionsAsync();
+      if (typeof node.setReactionsAsync !== "function") {
+        figma.notify("This layer can't hold interactions", { error: true });
+        return;
+      }
+      const reactions = await readReactions(node);
       await node.setReactionsAsync(reactions.filter((_, i) => i !== msg.index));
       figma.commitUndo();
       await handleMessage({ type: "getReactions" });
@@ -2829,6 +2834,18 @@ async function handleMessage(msg) {
       figma.notify(msg.message);
       return;
   }
+}
+
+// Not every node type carries interactions — getReactionsAsync is simply absent
+// on some of them, and the Prototype tab asks for whatever happens to be
+// selected. Prefer the async getter, fall back to the deprecated array, and
+// treat "this node has none" as an empty list rather than a failure.
+async function readReactions(node) {
+  try {
+    if (typeof node.getReactionsAsync === "function") return await node.getReactionsAsync();
+    if (Array.isArray(node.reactions)) return node.reactions;
+  } catch (e) { /* unreadable on this node */ }
+  return [];
 }
 
 function describeTrigger(t) {
