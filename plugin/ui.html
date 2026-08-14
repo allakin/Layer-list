@@ -2561,6 +2561,14 @@ function renderTabs() {
 function render() { renderTree(); renderInspector(); }
 
 function renderInspector() {
+  // Rendering is deferred while a popover is open so the document changing
+  // underneath cannot yank a control out from under the pointer. But if the
+  // popover is only open on paper — its layer is not on screen, which happens
+  // when a click lands on the canvas outside this iframe — deferring forever
+  // would freeze the panel. Treat that as closed and carry on.
+  if (popIsOpen() && !$("pop-layer").classList.contains("on")) {
+    POP.el = null; POP.onClose = null; POP.refresh = null;
+  }
   if (popIsOpen()) { pendingRender = true; return; }
   var scroll = inspEl.scrollTop;
   var focusKey = null, caret = null;

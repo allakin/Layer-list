@@ -594,10 +594,15 @@ function readProps(node) {
   }
 
   /* -- relations -- */
-  if (node.parent) {
-    p.parent = { id: node.parent.id, name: node.parent.name, type: node.parent.type };
-  }
-  p.childCount = "children" in node ? node.children.length : 0;
+  // Reaching for .parent or .children is exactly where an instance sublayer
+  // throws; a panel missing its Contents row beats no panel at all.
+  p.parent = safe(() => (node.parent
+    ? { id: node.parent.id, name: node.parent.name, type: node.parent.type }
+    : null), null);
+  p.childCount = safe(() => {
+    const kids = safeChildren(node);
+    return kids ? kids.length : 0;
+  }, 0);
 
   return p;
 }
@@ -756,11 +761,28 @@ async function pushSelection() {
   refSet = new Set();
   const slice = sel.slice(0, MAX_INSPECT).filter(nodeAlive);
   const read = [];
+  let firstError = null;
   for (const node of slice) {
-    try { read.push(readProps(node)); } catch (e) { /* vanished mid-read */ }
+    try {
+      read.push(readProps(node));
+    } catch (e) {
+      if (!firstError) firstError = { node: node, error: e };
+    }
   }
+
   if (!read.length) {
     figma.ui.postMessage({ type: "props", props: null, count: 0 });
+    // Swallowing this is how "I selected a layer and the panel went blank"
+    // happens: an empty panel and no clue why. Say what broke instead.
+    if (firstError) {
+      const where = safe(() => firstError.node.type + " “" + firstError.node.name + "”", "the selection");
+      figma.ui.postMessage({
+        type: "error",
+        message: "Could not read " + where + ": " + (firstError.error.message || firstError.error),
+        stack: firstError.error.stack || null
+      });
+      figma.notify("Could not read the selected layer", { error: true });
+    }
     return;
   }
   const props = mergeProps(read);
@@ -804,7 +826,7 @@ async function pushSelection() {
     props,
     refs,
     count: sel.length,
-    inspected: slice.length,
+    inspected: read.length,   // what was actually readable, not what was tried
     ids: sel.map((n) => n.id),
     types: [...new Set(sel.map((n) => n.type))],
     colors: sel.length > 1 ? selectionColors(slice) : null

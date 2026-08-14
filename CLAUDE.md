@@ -67,7 +67,12 @@ style preference.
    `dedupeStyles` / `dedupeTokens`.
    → `tests/ui/no-duplicate-styles.js`
 
-7. **`componentProperties` is unordered.** Take the order from the main
+7. **Never swallow a read failure silently.** Hardening `readProps` against dead
+   nodes once turned every unreadable node into an empty panel with no clue why.
+   Catch, keep going, but report — the panel has a copyable error bar for this.
+   → `tests/plugin/unreadable-selection.js`
+
+8. **`componentProperties` is unordered.** Take the order from the main
    component's `componentPropertyDefinitions`; fall back to the id in the
    property key, then a natural sort.
    → `tests/ui/component-property-order.js`
@@ -124,7 +129,7 @@ Tests that depend on the scan have to outwait `SCAN_START_DELAY_MS`; see
 npm test
 ```
 
-34 files: 2 integrity checks, 6 main-thread tests, 26 panel tests. All must pass.
+35 files: 2 integrity checks, 7 main-thread tests, 26 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that
