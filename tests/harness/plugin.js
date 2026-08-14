@@ -57,5 +57,31 @@ global.figma = {
   loadFontAsync: async () => {}
 };
 
+const failures = [];
+
+/*
+ * Same idea on this side: an assertion that does not hold is recorded and the
+ * process exits non-zero, so a test cannot pass by reporting nothing.
+ */
+function expect(label, condition) {
+  if (condition) {
+    console.log("  ok    " + label);
+  } else {
+    console.log("  FAIL  " + label);
+    failures.push(label);
+  }
+  return !!condition;
+}
+
+function finish() {
+  const notes = posted.filter((m) => m.notify);
+  console.log("\nplugin error toasts: " + (notes.length ? JSON.stringify(notes.map((x) => x.notify)) : "(none)"));
+  if (failures.length) {
+    console.log("FAIL: " + failures.length + " assertion(s) did not hold");
+    process.exit(1);
+  }
+  process.exit(notes.length ? 1 : 0);
+}
+
 global.__html__ = "<html></html>";
-module.exports = { events, pageEvents, clientStore, posted, mkNode, nodesById, send: (m) => uiHandler(m), get ui() { return uiHandler; } };
+module.exports = { events, pageEvents, clientStore, posted, mkNode, nodesById, expect, finish, send: (m) => uiHandler(m), get ui() { return uiHandler; } };

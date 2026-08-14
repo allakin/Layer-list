@@ -3,14 +3,19 @@
 A Figma plugin that reproduces the native **Layers** and **Design** panels, so you
 can collapse Figma's own panels and work from the plugin window instead.
 
-![no screenshot yet](https://img.shields.io/badge/figma-plugin-black) ![tests](https://img.shields.io/badge/tests-32-green)
+![no screenshot yet](https://img.shields.io/badge/figma-plugin-black) ![tests](https://img.shields.io/badge/tests-33-green)
 
 ## Install
 
 1. Figma → **Plugins → Development → Import plugin from manifest…**
-2. Pick `manifest.json` from this folder.
+2. Pick `src/manifest.json`.
 
-No build step. Figma loads `code.js` and `ui.html` as they are.
+No build step. Figma loads `src/code.js` and `src/ui.html` as they are.
+
+```
+src/     the plugin: manifest, main thread, panel
+tests/   integrity checks, harnesses and behavioural tests
+```
 
 ## What it does
 
@@ -47,7 +52,7 @@ field, to fills and strokes, to effects and grids.
 
 ```sh
 npm install     # jsdom, for the tests
-npm test        # 32 files: integrity checks + behaviour
+npm test        # 33 files: integrity checks + behaviour
 ```
 
 ```sh
@@ -57,9 +62,9 @@ npm run test:plugin    # the main thread, against a stubbed Figma API
 node tests/run.js theme    # anything matching "theme"
 ```
 
-The tests need no Figma: `tests/harness/ui.js` loads `ui.html` into jsdom and
+The tests need no Figma: `tests/harness/ui.js` loads `src/ui.html` into jsdom and
 speaks the plugin's postMessage protocol; `tests/harness/plugin.js` stubs enough
-of the Figma API to load `code.js` and drive it.
+of the Figma API to load `src/code.js` and drive it.
 
 Conventions, the reasoning behind the tricky parts, and what the Plugin API
 cannot do are in [CLAUDE.md](CLAUDE.md). Read it before changing the message

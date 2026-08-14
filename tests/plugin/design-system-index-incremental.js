@@ -35,8 +35,12 @@ page.on = (t, fn) => { P.pageEvents[t] = fn; };
 page.off = () => {};
 f.root.children=[page]; f.currentPage=page; f.root.id="doc-2";
 
-require(require("path").join(__dirname, "..", "..", "code.js"));
+require(require("path").join(__dirname, "..", "..", "src", "code.js"));
 const wait = ms => new Promise(r=>setTimeout(r,ms));
+/* The scan holds off for SCAN_START_DELAY_MS so the editor keeps its frames;
+   these waits have to clear that. */
+const SCAN_WAIT = 1900;
+
 function tally() {
   const st = P.posted.filter(m=>m.type==="styles").pop();
   const lv = P.posted.filter(m=>m.type==="libraryVariables").pop();
@@ -49,7 +53,7 @@ function tally() {
 
 (async () => {
   await P.send({ type:"ready" });
-  await wait(120);
+  await wait(SCAN_WAIT);
   let t = tally();
   console.log("baseline:            ", t.styles, "styles,", t.tokens, "tokens", t.names);
 
@@ -70,11 +74,13 @@ function tally() {
   page.selection = [deep];
   console.log("\nselectionchange handler registered:", typeof P.events.selectionchange === "function");
   P.events.selectionchange();
-  await wait(120);
+  await wait(SCAN_WAIT);
   console.log("selection path ran without error");
 
   await wait(1700);
   const saved = P.clientStore["libIndex:doc-2"];
   console.log("\npersisted:", saved.styles.length, "styles,", saved.vars.length, "tokens");
-  console.log("notifications:", P.posted.filter(m=>m.notify).length ? P.posted.filter(m=>m.notify) : "(none)");
+  P.expect("the edit added a style without a rescan", saved.styles.length === 2);
+  P.expect("the edit added a token without a rescan", saved.vars.length === 2);
+  P.finish();
 })().catch(e => { console.error("FAIL:", e.stack.split("\n").slice(0,3).join(" | ")); process.exit(1); });

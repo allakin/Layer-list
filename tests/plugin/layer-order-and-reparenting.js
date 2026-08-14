@@ -18,7 +18,7 @@ const page = P.mkNode({ id:"page", name:"Page 1", type:"PAGE", children:[
 page.selection = []; page.on=()=>{}; page.off=()=>{}; page.loadAsync=async()=>{}; page.findAll=()=>[];
 f.root.children = [page]; f.currentPage = page;
 
-require(require("path").join(__dirname, "..", "..", "code.js"));
+require(require("path").join(__dirname, "..", "..", "src", "code.js"));
 
 async function layers() {
   P.posted.length = 0;

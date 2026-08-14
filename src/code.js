@@ -849,6 +849,7 @@ function bindPageWatcher() {
   };
 
   const onNodeChange = (event) => {
+    lastDocChangeAt = Date.now();
     scheduleRefresh(true);
     // Keep the design-system index current without a full rescan: only the
     // nodes that actually changed get inspected.
@@ -1730,6 +1731,14 @@ const libStore = {
 };
 
 let scanState = null;       // in-flight background walk
+let lastDocChangeAt = 0;    // set from nodechange; the scan yields to editing
+
+// Tuned so the editor keeps its frames: a short slice of work, a real gap after
+// it, and nothing at all until the panel has painted.
+const SCAN_SLICE_MS = 6;
+const SCAN_IDLE_MS = 24;
+const SCAN_START_DELAY_MS = 1500;
+const SCAN_EDIT_QUIET_MS = 400;
 let saveTimer = null;
 let pendingIds = null;      // ids gathered from nodechange, awaiting resolution
 let pendingTimer = null;
@@ -1944,7 +1953,9 @@ function startBackgroundScan(scanAll) {
     cancelled: false
   };
   pushLibStatus("scanning");
-  setTimeout(stepScan, 0);
+  // Let the panel paint and the first interactions land before touching the
+  // document tree.
+  setTimeout(stepScan, SCAN_START_DELAY_MS);
 }
 
 function stepScan() {
@@ -1952,38 +1963,63 @@ function stepScan() {
     stepScanInner();
   } catch (e) {
     // Never let a dead node abort the scan or surface as a plugin error toast.
-    if (scanState) setTimeout(stepScan, 0);
+    if (scanState) setTimeout(stepScan, SCAN_IDLE_MS);
   }
 }
 
 function stepScanInner() {
   const st = scanState;
   if (!st || st.cancelled) return;
-  let ticks = 3000;
 
-  while (ticks-- > 0) {
-    if (!st.stack.length) {
-      if (!st.pages.length) { finishScan().catch(noop); return; }
-      const page = st.pages.shift();
-      if (page.id !== figma.currentPage.id) {
-        page.loadAsync().then(() => {
-          if (st.cancelled) return;
-          st.stack.push(...page.children);
-          setTimeout(stepScan, 0);
-        }).catch(() => setTimeout(stepScan, 0));
-        return;
-      }
-      st.stack.push(...page.children);
-      continue;
-    }
-    if (st.budget-- <= 0) { st.truncated = true; finishScan().catch(noop); return; }
-    const node = st.stack.pop();
-    if (!nodeAlive(node)) continue;
-    harvestNode(node, st.styleIds, st.varIds);
-    const kids = safeChildren(node);
-    if (kids) for (let i = 0; i < kids.length; i++) st.stack.push(kids[i]);
+  // Someone is editing — come back later rather than compete for the thread.
+  if (Date.now() - lastDocChangeAt < SCAN_EDIT_QUIET_MS) {
+    setTimeout(stepScan, SCAN_IDLE_MS * 4);
+    return;
   }
-  setTimeout(stepScan, 0);
+
+  // Invisible instance children carry nothing the visible tree does not, and
+  // skipping them is most of the saving on component-heavy files.
+  const prevSkip = figma.skipInvisibleInstanceChildren;
+  figma.skipInvisibleInstanceChildren = true;
+
+  const deadline = Date.now() + SCAN_SLICE_MS;
+  let sinceClockCheck = 0;
+
+  try {
+    for (;;) {
+      // Checking the clock every node costs more than it saves.
+      if (++sinceClockCheck >= 256) {
+        sinceClockCheck = 0;
+        if (Date.now() >= deadline) break;
+      }
+
+      if (!st.stack.length) {
+        if (!st.pages.length) { finishScan().catch(noop); return; }
+        const page = st.pages.shift();
+        if (page.id !== figma.currentPage.id) {
+          page.loadAsync().then(() => {
+            if (st.cancelled) return;
+            for (const child of page.children) st.stack.push(child);
+            setTimeout(stepScan, SCAN_IDLE_MS);
+          }).catch(() => setTimeout(stepScan, SCAN_IDLE_MS));
+          return;
+        }
+        for (const child of page.children) st.stack.push(child);
+        continue;
+      }
+
+      if (st.budget-- <= 0) { st.truncated = true; finishScan().catch(noop); return; }
+      const node = st.stack.pop();
+      if (!nodeAlive(node)) continue;
+      harvestNode(node, st.styleIds, st.varIds);
+      const kids = safeChildren(node);
+      if (kids) for (let i = 0; i < kids.length; i++) st.stack.push(kids[i]);
+    }
+  } finally {
+    figma.skipInvisibleInstanceChildren = prevSkip;
+  }
+
+  setTimeout(stepScan, SCAN_IDLE_MS);
 }
 
 async function finishScan() {
@@ -2009,9 +2045,11 @@ function pushLibStatus(state) {
   });
 }
 
-function pushLibraryData() {
+function pushLibraryData(opts) {
   pushStyles().catch(noop);
-  pushLibraryVariables().catch(noop);
+  // The team-library catalogue is a network round trip. At startup the saved
+  // index is enough; the catalogue is fetched when a picker actually asks.
+  pushLibraryVariables(opts).catch(noop);
 }
 
 function libStylesOfType(type) {
@@ -2152,17 +2190,20 @@ async function pushVariables() {
 
 // figma.teamLibrary only lists *variable* collections. There is no API to
 // enumerate library styles, so the style pickers stay local-only by necessity.
-async function pushLibraryVariables() {
+async function pushLibraryVariables(opts) {
+  const useCatalogue = !(opts && opts.indexOnly);
   // Two independent sources, because either one can come back empty:
   //   · teamLibrary — the full catalogue, but only when the file actually
   //     subscribes to the library and the plan exposes the API;
   //   · the document scan — whatever is already in use, always available.
   let libs = [];
   let teamError = null;
-  try {
-    libs = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
-  } catch (e) {
-    teamError = e.message || String(e);
+  if (useCatalogue) {
+    try {
+      libs = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
+    } catch (e) {
+      teamError = e.message || String(e);
+    }
   }
 
   // Rebuild the collection payload from the index.
@@ -2386,7 +2427,7 @@ async function handleMessage(msg) {
 
       boot("Restoring the design-system index…");
       const hadIndex = await restoreIndex();
-      pushLibraryData();
+      pushLibraryData({ indexOnly: true });
       pushLibStatus(hadIndex ? "idle" : "scanning");
       startBackgroundScan(libStore.scannedAll);
       return;

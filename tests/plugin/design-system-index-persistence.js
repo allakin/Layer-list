@@ -44,9 +44,13 @@ page.findAllWithCriteria=()=>[];
 f.root.children=[page]; f.currentPage=page;
 f.root.id = "doc-1";
 
-require(require("path").join(__dirname, "..", "..", "code.js"));
+require(require("path").join(__dirname, "..", "..", "src", "code.js"));
 
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
+/* The scan holds off for SCAN_START_DELAY_MS so the editor keeps its frames;
+   these waits have to clear that. */
+const SCAN_WAIT = 1900;
+
 function last(type) { return P.posted.filter(m => m.type === type).pop(); }
 function counts(tag) {
   const st = last("styles"), lv = last("libraryVariables"), s = last("libStatus");
@@ -61,7 +65,7 @@ function counts(tag) {
   P.posted.length = 0;
   await P.send({ type:"ready" });
   counts("after ready (cold)");
-  await wait(120);
+  await wait(SCAN_WAIT);
   counts("after background pass");
 
   /* 2. incremental: a node starts using a token the index has never seen */
@@ -85,7 +89,7 @@ function counts(tag) {
   const before = last("libraryVariables").collections.reduce((n,c)=>n+c.variables.length,0);
   // trigger the same code path nodechange uses
   await (async () => {
-    const idx = require(require("path").join(__dirname, "..", "..", "code.js"));
+    const idx = require(require("path").join(__dirname, "..", "..", "src", "code.js"));
   })().catch(()=>{});
   console.log("\ntokens before top-up:", before);
 
@@ -102,5 +106,12 @@ function counts(tag) {
   counts("after ready (warm)");
   console.log("restored flag:", warm && warm.restored, "| savedAt set:", !!(warm && warm.savedAt));
 
-  console.log("\nnotifications:", P.posted.filter(m=>m.notify).length ? P.posted.filter(m=>m.notify) : "(none)");
+  const styles = last("styles"), vars = last("libraryVariables");
+  P.expect("the background pass found the library style",
+    styles.library.paint.length + styles.library.text.length > 0);
+  P.expect("the background pass found the library tokens",
+    vars.collections.reduce((n, c) => n + c.variables.length, 0) > 0);
+  P.expect("the index was written to clientStorage", !!P.clientStore["libIndex:doc-1"]);
+  P.expect("a warm open restores it", warm.restored === true && warm.savedAt > 0);
+  P.finish();
 })().catch(e => { console.error("FAIL:", e.stack.split("\n").slice(0,3).join(" | ")); process.exit(1); });

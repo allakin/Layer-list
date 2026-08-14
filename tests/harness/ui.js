@@ -1,7 +1,7 @@
 const fs = require("fs");
 const { JSDOM } = require("jsdom");
 
-const html = fs.readFileSync(require("path").join(__dirname, "..", "..", "ui.html"), "utf8");
+const html = fs.readFileSync(require("path").join(__dirname, "..", "..", "src", "ui.html"), "utf8");
 const errors = [];
 const sent = [];
 
@@ -19,9 +19,23 @@ function post(msg) {
   const ev = new w.MessageEvent("message", { data: { pluginMessage: msg } });
   try { w.onmessage(ev); } catch (e) { errors.push("onmessage(" + msg.type + "): " + e.stack.split("\n").slice(0,3).join(" | ")); }
 }
+/*
+ * A test that reports zeroes must fail, not pass quietly. Anything asserted with
+ * expect() lands in `errors`, which the runner treats as a failure.
+ */
+function expect(label, condition) {
+  if (condition) {
+    console.log("  ok    " + label);
+  } else {
+    console.log("  FAIL  " + label);
+    errors.push("expected: " + label);
+  }
+  return !!condition;
+}
+
 function check(label) {
   const bar = w.document.getElementById("errbar");
   if (bar && bar.style.display === "block") errors.push(label + " -> " + bar.textContent);
 }
 
-module.exports = { w, dom, errors, sent, post, check };
+module.exports = { w, dom, errors, sent, post, check, expect };

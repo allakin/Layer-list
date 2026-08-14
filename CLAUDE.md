@@ -5,14 +5,19 @@ native ones can be collapsed and the plugin used in their place.
 
 ## Layout
 
-| File | What lives there |
+| Path | What lives there |
 | --- | --- |
-| `manifest.json` | Plugin manifest. `documentAccess: dynamic-page`. |
-| `code.js` | Main thread. Reads and writes the document, owns the design-system index. |
-| `ui.html` | The entire panel — markup, CSS and script in one file. |
+| `src/manifest.json` | Plugin manifest. `documentAccess: dynamic-page`. |
+| `src/code.js` | Main thread. Reads and writes the document, owns the design-system index. |
+| `src/ui.html` | The entire panel — markup, CSS and script in one file. |
 | `tests/` | Integrity checks and behavioural tests. `npm test`. |
 
-No build step, on purpose. Figma loads `code.js` and `ui.html` directly, so the
+Everything the plugin ships is under `src/`; everything that supports it is under
+`tests/`. The four files left at the root have to be there: `package.json` and
+`package-lock.json` for npm, `.gitignore` for git, and this file so Claude Code
+loads it automatically.
+
+No build step, on purpose. Figma loads `src/code.js` and `src/ui.html` directly, so the
 files you edit are the files that ship. Do not introduce a bundler without a
 reason that survives that trade-off.
 
@@ -82,6 +87,25 @@ Do not spend time trying to work around these; say so in the UI instead.
   and `CONNECTOR` (dedicated properties) have independent ends.
 - No canvas hover events, no docking, no eyedropper, no library file name.
 
+## Keeping the editor responsive
+
+Figma runs the plugin on a thread the editor shares, so a busy loop there shows
+up as stutter in the canvas. The background scan is built around that:
+
+- each tick works for **6 ms**, then yields for **24 ms** — never `setTimeout(…, 0)`,
+  which reschedules immediately and starves the editor;
+- the first tick waits **1.5 s** so the panel paints and the first clicks land
+  before the document tree is touched;
+- a tick is skipped entirely while the document is changing, so the scan never
+  competes with typing or dragging;
+- `skipInvisibleInstanceChildren` is on for the duration of the walk;
+- the team-library catalogue is a network round trip and is **not** fetched at
+  startup — the saved index covers the first paint, the catalogue is requested
+  when a picker asks for it.
+
+Tests that depend on the scan have to outwait `SCAN_START_DELAY_MS`; see
+`SCAN_WAIT` in the index tests.
+
 ## Conventions
 
 - Icons: generic UI glyphs come from `@gravity-ui/icons` and are filled paths —
@@ -100,4 +124,8 @@ Do not spend time trying to work around these; say so in the UI instead.
 npm test
 ```
 
-32 files: 2 integrity checks, 5 main-thread tests, 25 panel tests. All must pass.
+33 files: 2 integrity checks, 5 main-thread tests, 26 panel tests. All must pass.
+
+Assertions go through `expect(label, condition)` from either harness. A test that
+prints numbers without asserting them can pass while measuring nothing — that
+happened once already, when a timing change made an index test vacuous.

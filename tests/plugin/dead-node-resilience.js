@@ -36,7 +36,7 @@ const uncaught = [];
 process.on("uncaughtException", e => uncaught.push("uncaught: " + e.message.slice(0,60)));
 process.on("unhandledRejection", e => uncaught.push("unhandled: " + String(e && e.message).slice(0,60)));
 
-require(require("path").join(__dirname, "..", "..", "code.js"));
+require(require("path").join(__dirname, "..", "..", "src", "code.js"));
 const wait = ms => new Promise(r=>setTimeout(r,ms));
 
 (async () => {
