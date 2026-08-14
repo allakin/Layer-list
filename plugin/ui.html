@@ -135,7 +135,11 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
 
 /* ---- main split --------------------------------------------------------- */
 #main { flex: 1 1 auto; display: flex; min-height: 0; }
-#layers-pane { flex: 1 1 auto; min-width: 100px; display: flex; flex-direction: column; min-height: 0; }
+/* Zero basis, not `auto`: rows are as wide as their content, so with an `auto`
+   basis one very long name — or one deep branch — made this pane's ideal width
+   thousands of pixels and the inspector, which may shrink, collapsed to nothing.
+   The tree scrolls sideways inside the pane instead. */
+#layers-pane { flex: 1 1 0; min-width: 100px; display: flex; flex-direction: column; min-height: 0; }
 #hsplit { flex: 0 0 auto; width: 1px; background: var(--border); cursor: col-resize; position: relative; }
 #hsplit::after { content: ""; position: absolute; inset: 0 -3px; }
 #hsplit:hover { background: var(--brand); }
@@ -2174,6 +2178,12 @@ function layerRow(r, i) {
   el.appendChild(h("span", { class: "tico", html: typeIcon(r.type, r) }));
   el.appendChild(h("span", { class: "nm", text: r.name }));
   if (r.path) el.appendChild(h("span", { class: "path", text: r.path }));
+  // Same layer as one of its own ancestors: the branch would repeat forever, so
+  // the plugin stops it here and the row says why instead of just losing its caret.
+  if (r.cycle) el.appendChild(h("span", {
+    class: "badge", text: "↻",
+    title: "This layer already appears further up — the branch repeats itself, so the list stops here"
+  }));
 
   var acts = h("div", { class: "acts" });
   if (r.mask) acts.appendChild(iconBtn(I.clip, { title: "Used as mask", stick: true, plain: true }));

@@ -153,8 +153,16 @@ function childOrder(container) {
 
 // Walks only expanded branches — the whole point is that a 50k-layer file
 // costs the same as a 50-layer one until you open something.
-function collectRows(container, depth, out, state, inComponent) {
+//
+// `path` holds the ids of the containers above this one, because a layer can
+// turn up inside itself: slot content and recursive instances both do it, and
+// Figma's own panel only survives because it opens one level per click. This one
+// opens every expanded branch at once, so an unguarded walk runs to MAX_ROWS
+// with each row indented a level deeper — that is what once made the tree wider
+// than the window and squeezed the inspector out of sight.
+function collectRows(container, depth, out, state, inComponent, path) {
   const kids = childOrder(container);
+  const chain = path || new Set([container.id]);
   for (const node of kids) {
     if (out.length >= MAX_ROWS) { state.truncated = true; return; }
     if (!nodeAlive(node)) continue;
@@ -164,9 +172,19 @@ function collectRows(container, depth, out, state, inComponent) {
     } catch (e) {
       continue;                                  // skip the casualty, keep the list
     }
+    if (chain.has(node.id)) {
+      // The same layer as one of its own ancestors. Show it — the structure is
+      // real — but end the branch here rather than repeat it forever.
+      row.cycle = true;
+      row.hasChildren = false;
+      out.push(row);
+      continue;
+    }
     out.push(row);
     if (row.hasChildren && expanded.has(node.id)) {
-      collectRows(node, depth + 1, out, state, !!inComponent || COMPONENT_TYPES.has(node.type));
+      chain.add(node.id);
+      collectRows(node, depth + 1, out, state, !!inComponent || COMPONENT_TYPES.has(node.type), chain);
+      chain.delete(node.id);
     }
   }
 }
@@ -2484,12 +2502,14 @@ async function handleMessage(msg) {
       if (msg.deep) {
         const node = await figma.getNodeByIdAsync(msg.id);
         if (node && "children" in node) {
+          const seen = new Set([msg.id]);         // a layer can contain itself
           const walk = (n) => {
-            if (!("children" in n)) return;
+            if (!("children" in n) || seen.has(n.id)) return;
+            seen.add(n.id);
             if (msg.expanded) expanded.add(n.id); else expanded.delete(n.id);
-            n.children.forEach(walk);
+            (safeChildren(n) || []).forEach(walk);
           };
-          node.children.forEach(walk);
+          (safeChildren(node) || []).forEach(walk);
         }
       }
       pushLayers();

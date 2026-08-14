@@ -77,11 +77,18 @@ style preference.
    property key, then a natural sort.
    → `tests/ui/component-property-order.js`
 
-9. **A page's selection only accepts nodes from that page.** The trap is
-   `getMainComponentAsync()`: it answers for a library instance too, but that
-   node hangs off no page, so selecting it throws. Find the page first and bail
-   out when there isn't one.
-   → `tests/plugin/library-main-component.js`
+9. **A layer can contain itself.** Slot content and recursive instances put the
+   same id inside its own subtree. Every walk over `children` needs the path it
+   came by; without it the tree runs to `MAX_ROWS` a thousand levels deep, and a
+   deep expand blows the stack. `.lrow` is as wide as its content, so a pane next
+   to it must never take its width from what it holds.
+   → `tests/plugin/self-nesting-layer.js`, `tests/ui/deep-rows-keep-inspector.js`
+
+10. **A page's selection only accepts nodes from that page.** The trap is
+    `getMainComponentAsync()`: it answers for a library instance too, but that
+    node hangs off no page, so selecting it throws. Find the page first and bail
+    out when there isn't one.
+    → `tests/plugin/library-main-component.js`
 
 ## What the API cannot do
 
@@ -137,7 +144,7 @@ Tests that depend on the scan have to outwait `SCAN_START_DELAY_MS`; see
 npm test
 ```
 
-37 files: 2 integrity checks, 8 main-thread tests, 27 panel tests. All must pass.
+39 files: 2 integrity checks, 9 main-thread tests, 28 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that
