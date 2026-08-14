@@ -129,7 +129,7 @@ Tests that depend on the scan have to outwait `SCAN_START_DELAY_MS`; see
 npm test
 ```
 
-35 files: 2 integrity checks, 7 main-thread tests, 26 panel tests. All must pass.
+36 files: 2 integrity checks, 7 main-thread tests, 27 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that

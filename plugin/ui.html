@@ -555,11 +555,33 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
 .tb-row .alias { color: var(--text-comp); }
 
 /* ---- misc --------------------------------------------------------------- */
-#resizer { position: fixed; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; z-index: 90; }
-#resizer::after {
-  content: ""; position: absolute; right: 3px; bottom: 3px; width: 7px; height: 7px;
-  border-right: 1.5px solid var(--text-3); border-bottom: 1.5px solid var(--text-3);
+/* The resize grip. It used to be a hairline corner at 36% opacity, which on a
+   dark panel reads as nothing at all. Now it is the familiar diagonal grip, big
+   enough to aim at, and it brightens on hover and while you drag. */
+#resizer {
+  position: fixed; right: 0; bottom: 0; width: 22px; height: 22px;
+  cursor: nwse-resize; z-index: 90; color: var(--text-2);
+  border-bottom-right-radius: 4px;
 }
+#resizer::before {
+  content: ""; position: absolute; inset: 2px;
+  border-radius: 4px; background: transparent; transition: background .12s ease;
+}
+#resizer::after {
+  content: ""; position: absolute; right: 3px; bottom: 3px; width: 14px; height: 14px;
+  background: repeating-linear-gradient(
+    -45deg,
+    currentColor 0 1.6px,
+    transparent 1.6px 4.4px
+  );
+  /* keep only the corner triangle, so it reads as a grip and not as hatching */
+  -webkit-mask-image: linear-gradient(to top left, #000 58%, transparent 58%);
+  mask-image: linear-gradient(to top left, #000 58%, transparent 58%);
+}
+#resizer:hover { color: var(--text); }
+#resizer:hover::before { background: var(--bg-hover); }
+#resizer.dragging { color: var(--brand); }
+#resizer.dragging::before { background: var(--bg-sel); }
 /* Reading a large page is not instant, so say what is happening instead of
    showing an empty panel. */
 #boot {
@@ -4686,14 +4708,17 @@ function downloadFiles(files) {
 
 (function () {
   var rz = $("resizer");
+  rz.title = "Drag to resize the plugin window";
   rz.addEventListener("pointerdown", function (e) {
     e.preventDefault();
     rz.setPointerCapture(e.pointerId);
+    rz.classList.add("dragging");
     var x0 = e.clientX, y0 = e.clientY, w0 = window.innerWidth, h0 = window.innerHeight;
     function mv(ev) {
       send({ type: "resize", w: w0 + (ev.clientX - x0), h: h0 + (ev.clientY - y0) });
     }
     function up() {
+      rz.classList.remove("dragging");
       rz.releasePointerCapture(e.pointerId);
       rz.removeEventListener("pointermove", mv);
       rz.removeEventListener("pointerup", up);

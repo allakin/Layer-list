@@ -4,3 +4,7 @@ node_modules/
 
 # Claude Code local overrides — machine specific
 .claude/settings.local.json
+
+# Clones of the GitHub repos, sitting inside the project folder
+/Layer list/
+/Layers & Design/
