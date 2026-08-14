@@ -212,7 +212,13 @@ function searchRows() {
   figma.skipInvisibleInstanceChildren = true;
   let hits;
   try {
-    hits = figma.currentPage.findAll((n) => n.name.toLowerCase().includes(term));
+    // A text layer's name only follows its content until someone renames one of
+    // them, so matching names alone cannot find "Sign in" inside a layer called
+    // "Label" — and the rename popover offers to rewrite exactly that text.
+    hits = figma.currentPage.findAll((n) => {
+      if (safe(() => n.name, "").toLowerCase().includes(term)) return true;
+      return n.type === "TEXT" && safe(() => n.characters, "").toLowerCase().includes(term);
+    });
   } finally {
     figma.skipInvisibleInstanceChildren = prev;
   }
@@ -221,6 +227,10 @@ function searchRows() {
     const row = toRow(n, 0, n.parent ? n.parent.id : null, insideComponent(n));
     row.hasChildren = false;
     row.path = ancestorNames(n).join(" / ");
+    // The bulk-rename popover previews and rewrites text content, so the rows it
+    // works from carry it. Only these do — collectRows must not read a whole
+    // page's worth of characters on every selection change.
+    if (n.type === "TEXT") row.text = safe(() => n.characters, "");
     return row;
   });
   return { rows, truncated };
@@ -1564,6 +1574,72 @@ async function moveNodes(ids, targetId, pos) {
   figma.commitUndo();
 }
 
+/* ---- bulk rename --------------------------------------------------------- */
+
+// Writing .characters needs every font the node uses loaded first, and a text
+// node may use several — one per styled run. Returns false when the node did not
+// survive the loads, so it is counted as skipped rather than as done.
+async function setCharacters(node, text) {
+  const fonts = [];
+  const seen = new Set();
+  const add = (fn) => {
+    if (!fn || fn === figma.mixed || !fn.family) return;
+    const key = fn.family + "|" + fn.style;
+    if (seen.has(key)) return;
+    seen.add(key);
+    fonts.push(fn);
+  };
+  const single = node.fontName;
+  if (single === figma.mixed) {
+    for (const seg of node.getStyledTextSegments(["fontName"])) add(seg.fontName);
+  } else {
+    add(single);
+  }
+  for (const fn of fonts) await figma.loadFontAsync(fn);
+  if (!nodeAlive(node)) return false;            // gone while a font loaded
+  node.characters = text;
+  return true;
+}
+
+// The panel computes the new strings, because the preview it showed and the write
+// have to agree; this side only applies them. `target` is "name" for the layer
+// name or "text" for a text layer's content. Every node is fetched and written on
+// its own: an instance sublayer that refuses the write must not take the rest of
+// the batch with it, and any of them may have died since the panel listed it.
+async function renameMatches(renames, target) {
+  if (!Array.isArray(renames) || !renames.length) return;
+  const text = target === "text";
+  let done = 0;
+  const failures = [];
+  for (const r of renames) {
+    if (!r || !r.id || !r.name) continue;
+    const node = await figma.getNodeByIdAsync(r.id);
+    if (!nodeAlive(node)) continue;
+    try {
+      if (text) {
+        if (node.type !== "TEXT") continue;      // the panel filters these out already
+        if (await setCharacters(node, r.name)) done++;
+      } else {
+        node.name = r.name;
+        done++;
+      }
+    } catch (e) {
+      // Reading .name for the message can throw for the same reason the write did.
+      failures.push(safe(() => node.name, r.id) + ": " + e.message);
+    }
+  }
+  if (done) figma.commitUndo();
+  const what = text ? " text layer" : " layer";
+  if (failures.length) {
+    figma.notify(failures.length === 1
+      ? "Couldn't change " + failures[0]
+      : failures.length + " layers couldn't be changed — " + failures[0],
+      { error: true });
+  } else if (done) {
+    figma.notify((text ? "Replaced text in " : "Renamed ") + done + what + (done === 1 ? "" : "s"));
+  }
+}
+
 /* ---- context-menu actions ------------------------------------------------ */
 
 async function runAction(action, ids) {
@@ -2603,6 +2679,12 @@ async function handleMessage(msg) {
       await pushSelection();
       return;
     }
+
+    case "renameMatches":
+      await renameMatches(msg.renames, msg.target);
+      pushLayers();
+      await pushSelection();
+      return;
 
     case "move":
       await moveNodes(msg.ids, msg.targetId, msg.pos);

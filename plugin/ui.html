@@ -185,6 +185,8 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
 .lrow.slot .tico, .lrow.slot .nm { color: var(--text-slot); }
 .lrow .nm { flex: 0 0 auto; padding-right: 8px; }
 .lrow .path { color: var(--text-3); padding-right: 8px; flex: 0 0 auto; }
+/* What a text layer says, shown when that — and not its name — is why it matched */
+.lrow .snip { color: var(--text-2); padding-right: 8px; flex: 0 0 auto; }
 .lrow.off .nm, .lrow.off .tico { opacity: .4; }
 .lrow .badge { color: var(--text-3); padding-right: 6px; }
 .lrow .acts {
@@ -476,6 +478,25 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
 .msep { height: 1px; background: var(--border); margin: 4px 6px; }
 .mgroup { padding: 8px 8px 2px; color: var(--text-3); font-weight: 600; }
 
+/* ---- bulk rename popover ------------------------------------------------ */
+.rnp { width: 274px; }
+.rnp .r { display: flex; align-items: center; gap: 6px; padding: 0 8px 6px; }
+.rnp .r .lb { flex: 0 0 62px; color: var(--text-2); }
+.rnp .r .fld, .rnp .r .seg { flex: 1 1 auto; }
+.rnp .hint { padding: 0 8px 8px 76px; color: var(--text-3); }
+.rnp .hint b { font-weight: 600; color: var(--text-2); }
+/* The preview is the only thing that says what a bulk rename is about to do, so
+   it scrolls rather than being cut off — but the pop must not grow with it. */
+.rnp .prev { border-top: 1px solid var(--border); padding: 6px 8px; max-height: 128px; overflow: auto; }
+.rnp .pl { display: flex; align-items: center; gap: 5px; height: 18px; min-width: 0; }
+.rnp .pl .a { color: var(--text-3); flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rnp .pl .ar { color: var(--text-3); flex: 0 0 auto; }
+.rnp .pl .b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rnp .note { color: var(--text-3); padding: 4px 8px 0; }
+.rnp .foot { border-top: 1px solid var(--border); padding: 6px; }
+.rnp .foot .sel { width: 100%; justify-content: center; }
+.rnp .foot .sel[disabled] { opacity: .4; pointer-events: none; }
+
 /* ---- colour picker ------------------------------------------------------ */
 .cp { width: 240px; }
 .cp .tabs { display: flex; gap: 2px; padding: 0 6px 6px; }
@@ -516,6 +537,14 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
 .cp-sec .h { display: flex; align-items: center; gap: 4px; color: var(--text-2); margin-bottom: 4px; }
 .cp-sec .h .t { flex: 1; font-weight: 600; color: var(--text); }
 .swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+/* The search line every picker opens on. A style library runs to hundreds of
+   entries, so the list is reached by typing, not by scrolling — which only works
+   if the field has the focus the moment the picker opens. */
+.psearch {
+  width: 100%; height: 24px; border: none; outline: none; color: var(--text);
+  background: var(--bg-2); border-radius: 5px; padding: 0 6px; margin-bottom: 4px;
+}
+.psearch::placeholder { color: var(--text-3); }
 .tok-list { max-height: 168px; overflow: auto; }
 .tok-row {
   display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px;
@@ -645,6 +674,7 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
           <label class="searchbox">
             <span class="mi-ic"></span>
             <input id="search" type="text" placeholder="Find layers…" spellcheck="false" />
+            <button class="ib" id="search-rename" title="Rename the layers found" style="display:none"></button>
             <button class="ib" id="search-clear" style="display:none"></button>
           </label>
           <button class="ib" id="btn-collapse" title="Collapse all layers"></button>
@@ -944,6 +974,8 @@ var I = {
   tick: ic('<path fill-rule="evenodd" d="M13.488 3.43a.75.75 0 0 1 .081 1.058l-6 7a.75.75 0 0 1-1.1.042l-3.5-3.5A.75.75 0 0 1 4.03 6.97l2.928 2.927 5.473-6.385a.75.75 0 0 1 1.057-.081" clip-rule="evenodd"/>', true),
   dots: ic('<path fill-rule="evenodd" d="M3 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3M9.5 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m5 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0" clip-rule="evenodd"/>', true),
   search: ic('<path fill-rule="evenodd" d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0m-.82 4.74a6 6 0 1 1 1.06-1.06l2.79 2.79a.75.75 0 1 1-1.06 1.06z" clip-rule="evenodd"/>', true),
+  // Gravity UI · Pencil
+  pencil: ic('<path fill-rule="evenodd" d="M11.423 1A3.577 3.577 0 0 1 15 4.577c0 .27-.108.53-.3.722l-.528.529-1.971 1.971-5.059 5.059a3 3 0 0 1-1.533.82l-2.638.528a1 1 0 0 1-1.177-1.177l.528-2.638a3 3 0 0 1 .82-1.533l5.059-5.059 2.5-2.5c.191-.191.451-.299.722-.299m-2.31 4.009-4.91 4.91a1.5 1.5 0 0 0-.41.766l-.38 1.903 1.902-.38a1.5 1.5 0 0 0 .767-.41l4.91-4.91a2.08 2.08 0 0 0-1.88-1.88m3.098.658a3.6 3.6 0 0 0-1.878-1.879l1.28-1.28c.995.09 1.788.884 1.878 1.88z" clip-rule="evenodd"/>', true),
   // Gravity UI · ArrowRotateRight
   refresh: ic('<path fill-rule="evenodd" d="M8 1.5a6.5 6.5 0 0 0-6.445 5.649.75.75 0 1 0 1.488.194A5.001 5.001 0 0 1 11.57 4.5h-1.32a.75.75 0 0 0 0 1.5h3a.75.75 0 0 0 .75-.75v-3a.75.75 0 0 0-1.5 0v1.06A6.48 6.48 0 0 0 8 1.5m-5.25 13a.75.75 0 0 1-.75-.75v-3a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 0 1.5H4.43a5.001 5.001 0 0 0 8.528-2.843.75.75 0 1 1 1.487.194A6.501 6.501 0 0 1 3.5 12.691v1.059a.75.75 0 0 1-.75.75" clip-rule="evenodd"/>', true),
   collapse: ic('<path fill-rule="evenodd" d="M10.97 12.53a.75.75 0 1 0 1.06-1.06l-3.5-3.5a.75.75 0 0 0-1.06 0l-3.5 3.5a.75.75 0 1 0 1.06 1.06L8 9.56zm0-5a.75.75 0 1 0 1.06-1.06l-3.5-3.5a.75.75 0 0 0-1.06 0l-3.5 3.5a.75.75 0 0 0 1.06 1.06L8 4.56z" clip-rule="evenodd"/>', true),
@@ -1015,7 +1047,12 @@ var I = {
   page: ic('<path d="M4 2.5h5l3 3v8H4Z"/><path d="M9 2.5V6h3"/>'),
   pageStack: ic('<rect x="2.5" y="2.5" width="8" height="11" rx="1"/><path d="M5.5 5h2"/>'),
   proto: ic('<path fill-rule="evenodd" d="M13.5 8a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0m-7.75 3.031L11 8.866a1 1 0 0 0 0-1.732L7.25 4.969a1 1 0 0 0-1.5.866v4.33a1 1 0 0 0 1.5.866" clip-rule="evenodd"/>', true),
-  target: ic('<path fill-rule="evenodd" d="M3.5 0a.75.75 0 0 1 .75.75V2.5h8.25a.75.75 0 0 1 .75.75v8.5h2a.75.75 0 0 1 0 1.5h-2v2a.75.75 0 0 1-1.5 0v-2H3.5a.75.75 0 0 1-.75-.75V4h-2a.75.75 0 0 1 0-1.5h2V.75A.75.75 0 0 1 3.5 0m.75 4v7.75h7.5V4z" clip-rule="evenodd"/>', true),
+  // Gravity UI · MagnifierPlus — "zoom to selection", which the crop glyph this
+  // replaced never said; it read as a second Position button.
+  zoomTo: ic('<path fill-rule="evenodd" d="M6.75 11a4.25 4.25 0 1 0 0-8.5 4.25 4.25 0 0 0 0 8.5m0 1.5a5.73 5.73 0 0 0 3.501-1.188l2.719 2.718a.75.75 0 1 0 1.06-1.06l-2.718-2.719A5.75 5.75 0 1 0 6.75 12.5m.75-7.75a.75.75 0 0 0-1.5 0V6H4.75a.75.75 0 0 0 0 1.5H6v1.25a.75.75 0 0 0 1.5 0V7.5h1.25a.75.75 0 0 0 0-1.5H7.5z" clip-rule="evenodd"/>', true),
+  // Gravity UI · BanDashed — a layer positioned absolutely opts out of the rules
+  // its auto-layout parent lays down, which is what a dashed "no" says.
+  banDashed: ic('<path d="M6.281 14.058a.75.75 0 0 1 .858-.625 5.6 5.6 0 0 0 1.722 0 .75.75 0 0 1 .234 1.482 7 7 0 0 1-2.19 0 .75.75 0 0 1-.624-.857m-3.779-2.99a.75.75 0 0 1 1.048.164c.34.467.75.879 1.218 1.218a.75.75 0 0 1-.883 1.213 7 7 0 0 1-1.548-1.548.75.75 0 0 1 .165-1.048m9.948.164a.75.75 0 0 1 1.213.883 7 7 0 0 1-1.548 1.548.75.75 0 0 1-.883-1.213c.467-.34.879-.75 1.218-1.218M1 8q0-.559.085-1.095a.75.75 0 0 1 1.482.234 5.6 5.6 0 0 0 0 1.722.75.75 0 0 1-1.482.234A7 7 0 0 1 1 8m12.5 0q0-.441-.067-.861a.75.75 0 0 1 1.482-.234 7 7 0 0 1 0 2.19.75.75 0 0 1-1.482-.234q.066-.42.067-.861M3.885 2.337a.75.75 0 0 1 .883 1.213c-.467.34-.879.75-1.218 1.218a.75.75 0 0 1-1.213-.883 7 7 0 0 1 1.548-1.548m7.182.165a.75.75 0 0 1 1.048-.165 7 7 0 0 1 1.548 1.548.75.75 0 0 1-1.213.883 5.5 5.5 0 0 0-1.218-1.218.75.75 0 0 1-.165-1.048M8 1q.559 0 1.095.085a.75.75 0 0 1-.234 1.482 5.6 5.6 0 0 0-1.722 0 .75.75 0 0 1-.234-1.482A7 7 0 0 1 8 1m.5 7.5a.75.75 0 0 1 1.06 0l1.296 1.295a.75.75 0 0 1-1.06 1.061L8.5 9.56a.75.75 0 0 1 0-1.06M5.144 5.144a.75.75 0 0 1 1.06 0l1.297 1.297a.75.75 0 0 1-1.06 1.06L5.144 6.205a.75.75 0 0 1 0-1.061"/>', true),
   moon: ic('<path fill-rule="evenodd" d="M8 13.5a5.5 5.5 0 0 0 2.263-10.514 5.5 5.5 0 0 1-7.278 7.278A5.5 5.5 0 0 0 8 13.5M1.045 8.795a7.001 7.001 0 1 0 7.75-7.75l-.028-.003A7 7 0 0 0 8 1c-.527 0-.59.842-.185 1.18a4 4 0 0 1 .342.322A4 4 0 1 1 2.18 7.814C1.842 7.41 1 7.474 1 8a7 7 0 0 0 .045.794" clip-rule="evenodd"/>', true),
   sun: ic('<path fill-rule="evenodd" d="M8 3a.75.75 0 0 1-.75-.75V.75a.75.75 0 0 1 1.5 0v1.5A.75.75 0 0 1 8 3m0 7.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5M8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8m-.75 3.25a.75.75 0 0 0 1.5 0v-1.5a.75.75 0 0 0-1.5 0zM13 8a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5h-1.5A.75.75 0 0 1 13 8M.75 7.25a.75.75 0 0 0 0 1.5h1.5a.75.75 0 0 0 0-1.5zm10.786-2.786a.75.75 0 0 1 0-1.06l1.06-1.06a.75.75 0 0 1 1.06 1.06l-1.06 1.06a.75.75 0 0 1-1.06 0m-9.193 8.132a.75.75 0 0 0 1.06 1.06l1.062-1.06a.75.75 0 0 0-1.061-1.06zm9.193-1.06a.75.75 0 0 1 1.06 0l1.06 1.06a.75.75 0 0 1-1.06 1.06l-1.06-1.06a.75.75 0 0 1 0-1.06M3.404 2.343a.75.75 0 0 0-1.06 1.06l1.06 1.061a.75.75 0 1 0 1.06-1.06z" clip-rule="evenodd"/>', true),
   typeDetails: ic('<path fill-rule="evenodd" d="M7.5 5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m1.405.75a3.001 3.001 0 0 1-5.81 0H1.747a.75.75 0 0 1 0-1.5h1.348a3.001 3.001 0 0 1 5.81 0h5.345a.75.75 0 0 1 0 1.5zm-7.158 4.5h5.345a3.001 3.001 0 0 1 5.811 0h1.347a.75.75 0 1 1 0 1.5h-1.347a3.001 3.001 0 0 1-5.81 0H1.746a.75.75 0 0 1 0-1.5m8.25-.75a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3" clip-rule="evenodd"/>', true),
@@ -1167,6 +1204,17 @@ function popOpen(anchor, node, opts) {
   POP.onClose = o.onClose || null;
   if (o.focus) { var f = pop.querySelector("input"); if (f) { f.focus(); f.select(); } }
   return pop;
+}
+
+// A picker with a library behind it is used by typing, not by scrolling: a file
+// can hold hundreds of styles and tokens. The .psearch field is the one to land
+// on — never `querySelector("input")`, which in the colour picker is the hex
+// field. Silent when there is no search, so callers need no guard.
+function focusPickerSearch() {
+  var s = POP.el && POP.el.querySelector(".psearch");
+  if (!s) return;
+  s.focus();
+  s.select();
 }
 
 function popClose() {
@@ -1633,8 +1681,7 @@ function openVariablePicker(anchor, o) {
   function build() {
     var body = h("div", { class: "pop-body" });
     var search = h("input", {
-      type: "text", spellcheck: "false", placeholder: "Search tokens…", value: query,
-      style: "width:100%;height:24px;border:none;outline:none;background:var(--bg-2);border-radius:5px;padding:0 6px;color:var(--text);margin-bottom:4px"
+      class: "psearch", type: "text", spellcheck: "false", placeholder: "Search tokens…", value: query
     });
     search.addEventListener("input", function () { query = search.value; repaint(); });
     body.appendChild(search);
@@ -1694,12 +1741,13 @@ function openVariablePicker(anchor, o) {
   }
 
   var pop = popOpen(anchor, build(), { width: 260 });
+  focusPickerSearch();
   function repaint() {
     if (!POP.el) return;
     var next = build();
     POP.el.innerHTML = "";
     POP.el.appendChild(next);
-    var s = POP.el.querySelector("input");
+    var s = POP.el.querySelector(".psearch");
     if (s) { s.focus(); s.setSelectionRange(query.length, query.length); }
   }
   POP.refresh = repaint;
@@ -1887,8 +1935,7 @@ function openColorPicker(anchor, ctx) {
     ]);
     libSec.appendChild(head);
     var search = h("input", {
-      type: "text", spellcheck: "false", placeholder: "Search…",
-      style: "width:100%;height:24px;border:none;outline:none;background:var(--bg-2);border-radius:5px;padding:0 6px;color:var(--text);margin-bottom:4px"
+      class: "psearch", type: "text", spellcheck: "false", placeholder: "Search…"
     });
     libSec.appendChild(search);
     var list = h("div", { class: "tok-list" });
@@ -2018,6 +2065,9 @@ function openColorPicker(anchor, ctx) {
 
   var pop = popOpen(anchor, body, { width: 240, align: "right", class: "cp" });
   paintAll();
+  // The styles-and-tokens search, not the hex field: a colour you already have a
+  // token for is found by name, and the hex is still one click away.
+  focusPickerSearch();
   POP.refresh = paintLib;
   return pop;
 }
@@ -2062,8 +2112,7 @@ function openFontPicker(anchor, current, onPick) {
   function build() {
     var body = h("div", { class: "pop-body" });
     var search = h("input", {
-      type: "text", spellcheck: "false", placeholder: "Search fonts…", value: query,
-      style: "width:100%;height:24px;border:none;outline:none;background:var(--bg-2);border-radius:5px;padding:0 6px;color:var(--text);margin-bottom:4px"
+      class: "psearch", type: "text", spellcheck: "false", placeholder: "Search fonts…", value: query
     });
     search.addEventListener("input", function () { query = search.value; repaint(); });
     body.appendChild(search);
@@ -2094,12 +2143,11 @@ function openFontPicker(anchor, current, onPick) {
     if (!POP.el) return;
     POP.el.innerHTML = "";
     POP.el.appendChild(build());
-    var s = POP.el.querySelector("input");
+    var s = POP.el.querySelector(".psearch");
     if (s) { s.focus(); s.setSelectionRange(query.length, query.length); }
   }
   POP.refresh = repaint;
-  var s0 = POP.el.querySelector("input");
-  if (s0) s0.focus();
+  focusPickerSearch();
 }
 
 /* =============================================================================
@@ -2127,8 +2175,17 @@ function markSubtrees() {
   });
 }
 
+// Read once per render, not once per row: layerRow runs up to MAX_ROWS times.
+var matchTerm = "";
+
+function oneLine(s, max) {
+  var t = String(s).replace(/\s+/g, " ").trim();
+  return t.length > max ? t.slice(0, max) + "…" : t;
+}
+
 function renderTree() {
   if (ST.renaming || ST.dragging) return;
+  matchTerm = ST.searching ? $("search").value.trim().toLowerCase() : "";
   var scroll = treeEl.scrollTop;
   treeEl.innerHTML = "";
 
@@ -2178,6 +2235,11 @@ function layerRow(r, i) {
   el.appendChild(h("span", { class: "tico", html: typeIcon(r.type, r) }));
   el.appendChild(h("span", { class: "nm", text: r.name }));
   if (r.path) el.appendChild(h("span", { class: "path", text: r.path }));
+  // The search also matches what a text layer says, so a row whose name has
+  // nothing to do with the term would otherwise look like it does not belong.
+  if (matchTerm && r.text != null && r.name.toLowerCase().indexOf(matchTerm) === -1) {
+    el.appendChild(h("span", { class: "snip", title: r.text, text: "“" + oneLine(r.text, 48) + "”" }));
+  }
   // Same layer as one of its own ancestors: the branch would repeat forever, so
   // the plugin stops it here and the row says why instead of just losing its caret.
   if (r.cycle) el.appendChild(h("span", {
@@ -2372,6 +2434,176 @@ function startRename(rowEl, r) {
   input.addEventListener("blur", function () { finish(true); });
 }
 
+/* ---- rename everything the search found --------------------------------- */
+/*
+  Find layers by name, then rename all of them in one go. The names are worked
+  out here rather than on the main thread, so the preview and the write cannot
+  drift apart — the plugin only applies the list it is handed.
+
+  Find is matched case-insensitively, the same way the search itself matches, or
+  the two would disagree about what "button" found. In the replacement, $& is
+  what Find matched — the whole name when Find is empty — and $n is the layer's
+  position in the list, counting from 1.
+*/
+var RN = { term: null, find: "", to: "", target: "name" };
+var RN_PREVIEW = 8;
+
+function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+function expandName(to, matched, num) {
+  return to.replace(/\$\$|\$&|\$n/gi, function (t) {
+    if (t === "$$") return "$";
+    return t.charAt(1) === "&" ? matched : num;
+  });
+}
+
+// target: "name" for the layer name, "text" for a text layer's own content. Rows
+// the target does not apply to are left out of the numbering as well as the
+// result, so $n never shifts because of a layer nobody is touching.
+function renameList(find, to, target) {
+  var out = [];
+  var re = find ? new RegExp(escRe(find), "gi") : null;
+  var text = target === "text";
+  var n = 0;
+  ST.rows.forEach(function (r) {
+    var from = text ? r.text : r.name;
+    if (from == null) return;                        // not a text layer
+    var num = String(++n);
+    var next = re
+      ? from.replace(re, function (m) { return expandName(to, m, num); })
+      : expandName(to, from, num);
+    // Layer names get trimmed, because a stray space in one is invisible and
+    // never intended; text content does not, because its whitespace is content.
+    if (!text) next = next.trim();
+    // A blank result is not something the panel should be able to produce, and
+    // writing back what is already there is not a change.
+    if (!next.trim() || next === from) return;
+    out.push({ id: r.id, from: from, name: next });
+  });
+  return out;
+}
+
+function textRowCount() {
+  return ST.rows.filter(function (r) { return r.text != null; }).length;
+}
+
+function openRenameMatches(anchor) {
+  if (!ST.searching || !ST.rows.length) {
+    popOpen(anchor, h("div", { class: "note", style: "padding:8px" },
+      "No layers match, so there is nothing to rename."), { class: "rnp", align: "right" });
+    return;
+  }
+
+  // A new search seeds Find with the term, so the common case — replace what you
+  // just searched for — needs one field filled in, not two. The replacement
+  // starts as $&, which is a real no-op: nothing is queued up until you type,
+  // and the field itself shows what the token is for.
+  var term = $("search").value;
+  if (RN.term !== term) { RN.term = term; RN.find = term.trim(); RN.to = "$&"; }
+
+  var texts = textRowCount();
+  if (RN.target === "text" && !texts) RN.target = "name";   // nothing to work on
+  var text = RN.target === "text";
+
+  var prev = h("div", { class: "prev" });
+  var go = h("button", { class: "sel boxed" }, [h("span", { class: "v" })]);
+  var goLabel = go.firstChild;
+
+  function repaint() {
+    var list = renameList(RN.find, RN.to, RN.target);
+    prev.innerHTML = "";
+    if (!list.length) {
+      prev.appendChild(h("div", { class: "note", style: "padding:0", text: RN.to === "$&"
+        ? "Nothing changes yet — type a replacement."
+        : (text ? "No text would change." : "No name would change.") }));
+    } else {
+      list.slice(0, RN_PREVIEW).forEach(function (it) {
+        // Text content can run to several lines; the row is one line, and the
+        // whole of it is on the tooltip.
+        prev.appendChild(h("div", { class: "pl", title: it.from + "  →  " + it.name }, [
+          h("span", { class: "a", text: oneLine(it.from, 60) }),
+          h("span", { class: "ar", text: "→" }),
+          h("span", { class: "b", text: oneLine(it.name, 60) })
+        ]));
+      });
+      if (list.length > RN_PREVIEW) {
+        prev.appendChild(h("div", { class: "note", style: "padding:2px 0 0",
+          text: "and " + (list.length - RN_PREVIEW) + " more" }));
+      }
+    }
+    goLabel.textContent = !list.length
+      ? (text ? "Replace" : "Rename")
+      : text
+        ? "Replace in " + list.length + (list.length === 1 ? " layer" : " layers")
+        : "Rename " + list.length + (list.length === 1 ? " layer" : " layers");
+    if (list.length) go.removeAttribute("disabled"); else go.setAttribute("disabled", "");
+    return list;
+  }
+
+  function commit() {
+    var list = renameList(RN.find, RN.to, RN.target);
+    if (!list.length) return;
+    popClose();
+    send({
+      type: "renameMatches", target: RN.target,
+      renames: list.map(function (it) { return { id: it.id, name: it.name }; })
+    });
+  }
+
+  function textRow(label, key, placeholder) {
+    var input = h("input", { type: "text", spellcheck: "false", value: RN[key], placeholder: placeholder });
+    input.addEventListener("input", function () { RN[key] = input.value; repaint(); });
+    // The tree's keyboard handler is elsewhere, but Enter here means "do it".
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); commit(); }
+    });
+    return h("div", { class: "r" }, [
+      h("span", { class: "lb", text: label }),
+      h("div", { class: "fld" }, [input])
+    ]);
+  }
+
+  var find = textRow("Find", "find", text ? "All of the text" : "Whole name");
+  var to = textRow(text ? "Replace with" : "Rename to", "to", text ? "New text" : "New name");
+  go.addEventListener("click", function (e) { stop(e); commit(); });
+
+  // The layer name and the text inside a text layer are two different things, and
+  // Figma only keeps them in step until you rename one. Which one this writes has
+  // to be a visible choice, not a guess about what was meant.
+  var pick = seg([
+    { v: "name", label: "Layer name" },
+    { v: "text", label: "Text", disabled: !texts,
+      title: texts ? "The text inside the text layers found" : "None of the layers found are text layers" }
+  ], RN.target, function (v) {
+    if (v === RN.target) return;
+    RN.target = v;
+    openRenameMatches($("search-rename"));       // labels and preview both change
+  });
+
+  popOpen(anchor, frag([
+    h("div", { class: "pop-hd" }, [
+      h("span", { class: "t", text: ST.rows.length === 1 ? "1 layer found" : ST.rows.length + " layers found" })
+    ]),
+    h("div", { class: "r" }, [h("span", { class: "lb", text: "Change" }), pick]),
+    find,
+    to,
+    h("div", { class: "hint", html: "<b>$&amp;</b> what Find matched · <b>$n</b> a number" }),
+    text && texts < ST.rows.length
+      ? h("div", { class: "note", style: "padding:0 8px 6px", text: texts +
+          " of the " + ST.rows.length + " matches are text layers; the rest are left alone." })
+      : null,
+    prev,
+    ST.truncated ? h("div", { class: "note", text: "Only the first " + ST.rows.length +
+      " matches are listed, so only those are changed — narrow the search to reach the rest." }) : null,
+    h("div", { class: "foot" }, [go])
+  ]), { class: "rnp", align: "right" });
+
+  repaint();
+  var toInput = to.querySelector("input");    // Find is prefilled; this is the one you edit
+  toInput.focus();
+  toInput.select();
+}
+
 /* ---- context menu ------------------------------------------------------- */
 
 function openLayerMenu(x, y, r) {
@@ -2482,9 +2714,17 @@ treeEl.addEventListener("keydown", function (e) {
 
 /* ---- toolbar ------------------------------------------------------------ */
 
+// Both trailing buttons are display:none at rest rather than transparent, or
+// they would reserve width and clip what you are typing.
+function syncSearchTools() {
+  var on = !!$("search").value;
+  $("search-clear").style.display = on ? "" : "none";
+  $("search-rename").style.display = on ? "" : "none";
+}
+
 $("search").addEventListener("input", function () {
   var v = $("search").value;
-  $("search-clear").style.display = v ? "" : "none";
+  syncSearchTools();
   clearTimeout(searchTimer);
   searchTimer = setTimeout(function () { send({ type: "search", term: v }); }, 140);
 });
@@ -2492,8 +2732,15 @@ var searchTimer = null;
 $("search-clear").innerHTML = I.close;
 $("search-clear").addEventListener("click", function () {
   $("search").value = "";
-  $("search-clear").style.display = "none";
+  syncSearchTools();
   send({ type: "search", term: "" });
+});
+$("search-rename").innerHTML = I.pencil;
+$("search-rename").addEventListener("click", function (e) {
+  // The search box is a <label>, so its default action hands focus to the input —
+  // which would take it straight back off the popover.
+  e.preventDefault();
+  openRenameMatches($("search-rename"));
 });
 document.querySelector(".searchbox .mi-ic").innerHTML = I.search;
 $("btn-collapse").innerHTML = I.collapse;
@@ -2670,7 +2917,7 @@ function nodeHeader() {
       title: "Create component", stick: true, plain: true,
       onClick: function () { act("createComponent"); }
     }),
-    iconBtn(I.target, {
+    iconBtn(I.zoomTo, {
       title: "Zoom to selection", stick: true, plain: true,
       onClick: function () { send({ type: "select", ids: ST.selIds, zoom: true }); }
     }),
@@ -2723,7 +2970,7 @@ function positionSection() {
   var absolute = P.layoutPositioning === "ABSOLUTE";
 
   if (P.inAutoLayout) {
-    sec.actions.appendChild(iconBtn(I.target, {
+    sec.actions.appendChild(iconBtn(I.banDashed, {
       title: absolute ? "Return to the auto layout flow" : "Set absolute position",
       on: absolute,
       onClick: function () { upd("layoutPositioning", absolute ? "AUTO" : "ABSOLUTE"); }
@@ -3426,8 +3673,7 @@ function openTextStylePicker(anchor) {
   function build() {
     var body = h("div", { class: "pop-body" });
     var search = h("input", {
-      type: "text", spellcheck: "false", placeholder: "Search text styles…", value: query,
-      style: "width:100%;height:24px;border:none;outline:none;background:var(--bg-2);border-radius:5px;padding:0 6px;color:var(--text);margin-bottom:4px"
+      class: "psearch", type: "text", spellcheck: "false", placeholder: "Search text styles…", value: query
     });
     search.addEventListener("input", function () { query = search.value; repaint(); });
     body.appendChild(search);
@@ -3468,11 +3714,12 @@ function openTextStylePicker(anchor) {
   }
 
   popOpen(anchor, build(), { width: 260, align: "right" });
+  focusPickerSearch();
   function repaint() {
     if (!POP.el) return;
     POP.el.innerHTML = "";
     POP.el.appendChild(build());
-    var s = POP.el.querySelector("input");
+    var s = POP.el.querySelector(".psearch");
     if (s) { s.focus(); s.setSelectionRange(query.length, query.length); }
   }
   POP.refresh = repaint;
@@ -4114,8 +4361,7 @@ function openInstanceSwap(anchor, propKey) {
   function build() {
     var body = h("div", { class: "pop-body" });
     var search = h("input", {
-      type: "text", spellcheck: "false", placeholder: "Search components…", value: query,
-      style: "width:100%;height:24px;border:none;outline:none;background:var(--bg-2);border-radius:5px;padding:0 6px;color:var(--text);margin-bottom:4px"
+      class: "psearch", type: "text", spellcheck: "false", placeholder: "Search components…", value: query
     });
     search.addEventListener("input", function () { query = search.value; repaint(); });
     body.appendChild(search);
@@ -4160,11 +4406,12 @@ function openInstanceSwap(anchor, propKey) {
   }
 
   popOpen(anchor, build(), { width: 260, align: "right" });
+  focusPickerSearch();
   function repaint() {
     if (!POP.el) return;
     POP.el.innerHTML = "";
     POP.el.appendChild(build());
-    var s = POP.el.querySelector("input");
+    var s = POP.el.querySelector(".psearch");
     if (s) { s.focus(); s.setSelectionRange(query.length, query.length); }
   }
   POP.refresh = repaint;

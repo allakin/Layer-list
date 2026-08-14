@@ -89,7 +89,16 @@ style preference.
     to it must never take its width from what it holds.
     → `tests/plugin/self-nesting-layer.js`, `tests/ui/deep-rows-keep-inspector.js`
 
-11. **A page's selection only accepts nodes from that page.** The trap is
+11. **A text layer's name and its text are two different strings.** Figma keeps
+    them in step only until one of them is edited, so a layer called `Label` can
+    say "Sign in" — searching names alone never finds it, and renaming it never
+    changes what is on the canvas. Anything offering to rewrite text has to say
+    which of the two it writes, and `.characters` needs every font in the node
+    loaded first (one per styled run, so `getStyledTextSegments` when `fontName`
+    is mixed).
+    → `tests/plugin/rename-found-layers.js`, `tests/ui/rename-found-layers.js`
+
+12. **A page's selection only accepts nodes from that page.** The trap is
     `getMainComponentAsync()`: it answers for a library instance too, but that
     node hangs off no page, so selecting it throws. Find the page first and bail
     out when there isn't one.
@@ -150,6 +159,11 @@ outwait the 90 ms window (see `SETTLE` in `unreadable-selection.js`).
   `ic(path, true)`. Figma-specific glyphs (layer types, auto-layout flow,
   alignment, stroke caps) are hand-drawn strokes — `ic(path)` — because Gravity
   has no equivalent and a near-miss reads worse than a purpose-drawn one.
+- Every library-backed picker opens with its `.psearch` field focused: a file's
+  styles and tokens are reached by typing, not by scrolling. Go through
+  `focusPickerSearch()`, never `querySelector("input")` — in the colour picker
+  that is the hex field.
+  → `tests/ui/picker-search-focus.js`
 - Theme: dark by default and defined without reference to Figma's variables, so
   the panel does not read as part of Figma's chrome. `data-theme="auto"` hands
   the palette back to Figma. Sizing tokens live in their own `:root` rule so they
@@ -162,7 +176,7 @@ outwait the 90 ms window (see `SETTLE` in `unreadable-selection.js`).
 npm test
 ```
 
-40 files: 2 integrity checks, 10 main-thread tests, 28 panel tests. All must pass.
+43 files: 2 integrity checks, 11 main-thread tests, 30 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that
