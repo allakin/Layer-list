@@ -498,9 +498,23 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
 .rnp .foot .sel[disabled] { opacity: .4; pointer-events: none; }
 
 /* ---- colour picker ------------------------------------------------------ */
-.cp { width: 240px; }
+.cp { width: 240px; max-width: calc(100vw - 8px); }
 .cp .tabs { display: flex; gap: 2px; padding: 0 6px 6px; }
 .cp .tabs .seg { flex: 1; }
+/* The palette and the file's colours sit side by side when the window has room
+   for both, stacked when it has not — the panel goes down to 260px. Which is
+   why the rule between them is a top border by default and a left border only
+   in `.two`: a left border on a full-width column reads as a mistake. */
+.cp-cols { display: flex; flex-direction: column; min-width: 0; }
+.cp-cols.two { flex-direction: row; align-items: stretch; }
+.cp-left { min-width: 0; }
+.cp-cols.two .cp-left { flex: 1 1 auto; min-width: 0; }
+.cp-right { display: flex; flex-direction: column; min-width: 0; }
+.cp-cols.two .cp-right { flex: 0 0 184px; border-top: none; border-left: 1px solid var(--border); }
+/* Side by side the list takes the height the palette sets, so the two columns
+   end level; stacked it falls back to a cap of its own. */
+.cp-right .h, .cp-right .psearch { flex: 0 0 auto; }
+.cp-right .tok-list { flex: 1 1 auto; min-height: 0; max-height: 208px; }
 .sv {
   position: relative; height: 160px; cursor: crosshair;
   background-image:
@@ -553,6 +567,12 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
 .tok-row:hover { background: var(--bg-hover); }
 .tok-row.on { background: var(--bg-sel); }
 .tok-row .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The prefix carries the whole shrink (factor 100 against the leaf's 1), so a
+   name only ever loses the group it is in, never what makes it itself. */
+.tok-row .nm.path { display: flex; align-items: center; min-width: 0; }
+.tok-row .nm .pre { flex: 0 100 auto; min-width: 0; color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tok-row .nm .leaf { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tok-row .val { color: var(--text-3); flex: 0 0 auto; }
 .gstrip { position: relative; height: 24px; margin: 0 8px 8px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--border); }
 .gstrip .gs {
@@ -1551,20 +1571,29 @@ function listOf(v) { return Array.isArray(v) ? v : []; }
     · by library key — the correct, lossless dedupe;
     · then by what the row actually renders, because two rows a reader cannot
       tell apart are worse than one.
+
+  A picker draws its list as several groups — local styles then library styles,
+  one block per collection — but it is still one list. Both passes have to span
+  the groups, or the same entry comes back under the next heading: a library
+  style the local enumeration also hands back shares its key, and a library that
+  has accumulated three keys for one style shares only its face. Pass one `seen`
+  through every group of a list, from newSeen().
 */
-function dedupe(list, keyOf, faceOf) {
-  var byKey = {}, byFace = {}, out = [];
+function newSeen() { return { keys: {}, faces: {} }; }
+
+function dedupe(list, keyOf, faceOf, seen) {
+  var s = seen || newSeen(), out = [];
   (list || []).forEach(function (item) {
     var k = keyOf ? keyOf(item) : null;
     if (k != null && k !== "") {
-      if (byKey[k]) return;
-      byKey[k] = 1;
+      if (s.keys[k]) return;
+      s.keys[k] = 1;
     }
     if (faceOf) {
       var face = faceOf(item);
       if (face != null) {
-        if (byFace[face]) return;
-        byFace[face] = 1;
+        if (s.faces[face]) return;
+        s.faces[face] = 1;
       }
     }
     out.push(item);
@@ -1577,8 +1606,24 @@ function styleFace(s) { return s.name + "|" + (s.desc || "") + "|" + (s.color ||
 function tokenId(v) { return v.key || v.id; }
 function tokenFace(v) { return v.name + "|" + v.type; }
 
-function dedupeStyles(list) { return dedupe(list, styleId, styleFace); }
-function dedupeTokens(list) { return dedupe(list, tokenId, tokenFace); }
+function dedupeStyles(list, seen) { return dedupe(list, styleId, styleFace, seen); }
+function dedupeTokens(list, seen) { return dedupe(list, tokenId, tokenFace, seen); }
+
+/*
+  A style or token name is a path — `color/text/primary-hover` — and what tells
+  two of them apart is the tail. Ellipsising from the right in a narrow column
+  turns `color/text/primary` and `color/text/primary-hover` into the same row,
+  which reads as a duplicate, so here the group prefix is what gives way and the
+  leaf always stays. `.nm` still reads as the whole name.
+*/
+function pathName(name) {
+  var i = String(name).lastIndexOf("/");
+  if (i < 0) return h("span", { class: "nm", text: name });
+  return h("span", { class: "nm path" }, [
+    h("span", { class: "pre", text: name.slice(0, i + 1) }),
+    h("span", { class: "leaf", text: name.slice(i + 1) })
+  ]);
+}
 
 /* ---- style groups: local + harvested library styles --------------------- */
 
@@ -1588,9 +1633,15 @@ function styleGroups(kind) {
   var S = ST.styles;
   if (!S || S === "loading") return [];
   var out = [];
-  var local = dedupeStyles(listOf(S[kind]));
+  // One `seen` across both groups: pasting from a library file leaves a local
+  // copy of its styles behind, so the same style was listed under each heading.
+  // The library group is resolved first even though it is rendered second — when
+  // two entries are indistinguishable the one that keeps the link to the library
+  // is the one worth keeping, and the local copy is the stale half.
+  var seen = newSeen();
+  var lib = dedupeStyles(S.library ? listOf(S.library[kind]) : [], seen);
+  var local = dedupeStyles(listOf(S[kind]), seen);
   if (local.length) out.push({ label: "Local styles", items: local });
-  var lib = dedupeStyles(S.library ? listOf(S.library[kind]) : []);
   if (lib.length) out.push({ label: "Library styles", items: lib, remote: true });
   return out;
 }
@@ -1691,10 +1742,11 @@ function openVariablePicker(anchor, o) {
     var found = 0;
     var q = query.trim().toLowerCase();
 
+    var seen = newSeen();
     cols.forEach(function (col) {
       var vars = dedupeTokens(col.variables.filter(function (v) {
         return v.type === want && (!q || v.name.toLowerCase().indexOf(q) > -1);
-      }));
+      }), seen);
       if (!vars.length) return;
       list.appendChild(h("div", { class: "mgroup", text: col.name + (col.remote ? "  ·  " + (col.library || "library") : "") }));
       vars.slice(0, 200).forEach(function (v) {
@@ -1766,6 +1818,11 @@ var PAINT_TYPES = [
   { v: "GRADIENT_DIAMOND", label: "Diamond" }
 ];
 var HEX_FORMATS = ["Hex", "RGB", "CSS", "HSL"];
+// Two columns need 420px, and the popover is clamped inside the window, so below
+// that the palette and the library stack instead of being cut off. The panel
+// itself stops at 260px (see the `resize` case in code.js).
+var CP_TWO_COL_MIN = 420;
+var CP_W_TWO = 420, CP_W_ONE = 240;
 
 /*
   ctx: { paint, index, prefix:'fill'|'stroke', styleId, styleKind:'PAINT',
@@ -1813,17 +1870,25 @@ function openColorPicker(anchor, ctx) {
   ]);
   body.appendChild(hd);
 
+  /* -- two columns: the palette, and what the file already has --
+     The palette comes first in the DOM on purpose: the hex field has to stay the
+     picker's first <input>, which is how it is reached from elsewhere. */
+  var palette = h("div", { class: "cp-left" });
+  var libSec = h("div", { class: "cp-right cp-sec" });
+  var twoCol = window.innerWidth >= CP_TWO_COL_MIN;
+  body.appendChild(h("div", { class: "cp-cols" + (twoCol ? " two" : "") }, [palette, libSec]));
+
   /* -- saturation / value square -- */
   var sv = h("div", { class: "sv" });
   var knob = h("div", { class: "knob" });
   sv.appendChild(knob);
-  body.appendChild(sv);
+  palette.appendChild(sv);
 
   /* -- sliders + preview -- */
   var hue = h("div", { class: "slid hue" }, [h("div", { class: "knob" })]);
   var alphaSl = h("div", { class: "slid alpha" }, [h("div", { class: "track" }), h("div", { class: "knob" })]);
   var preview = h("div", { class: "cp-preview" }, [h("i")]);
-  body.appendChild(h("div", { class: "cp-sliders" }, [
+  palette.appendChild(h("div", { class: "cp-sliders" }, [
     h("div", { class: "stack" }, [hue, alphaSl]), preview
   ]));
 
@@ -1842,22 +1907,22 @@ function openColorPicker(anchor, ctx) {
     fmtBtn.textContent = HEX_FORMATS[fmtIx];
     paintFields();
   });
-  body.appendChild(h("div", { class: "cp-fields" }, [fmtBtn, hexInput, opInput, h("span", { class: "unit", text: "%" })]));
+  palette.appendChild(h("div", { class: "cp-fields" }, [fmtBtn, hexInput, opInput, h("span", { class: "unit", text: "%" })]));
 
   /* -- gradient stop strip -- */
   var strip = null;
   if (isGrad) {
     strip = h("div", { class: "gstrip" });
-    body.appendChild(strip);
-    body.appendChild(h("div", { class: "hint", style: "padding:0 8px 8px", text: "Double-click to add a stop · Backspace to remove" }));
+    palette.appendChild(strip);
+    palette.appendChild(h("div", { class: "hint", style: "padding:0 8px 8px", text: "Double-click to add a stop · Backspace to remove" }));
   }
 
-  /* -- libraries: paint styles + colour tokens -- */
-  var libSec = h("div", { class: "cp-sec" });
-  body.appendChild(libSec);
+  /* -- recently used colours: part of the palette, not of the library -- */
+  var recSec = h("div", { class: "cp-sec" });
+  palette.appendChild(recSec);
 
   /* ---- painting ---- */
-  function paintAll() { paintSquare(); paintFields(); paintStrip(); paintLib(); }
+  function paintAll() { paintSquare(); paintFields(); paintStrip(); paintRecent(); paintLib(); }
 
   function paintSquare() {
     var pure = rgb255ToHex(hsvToRgb({ h: hsv.h, s: 1, v: 1 }));
@@ -1955,16 +2020,17 @@ function openColorPicker(anchor, ctx) {
               onclick: function () { popClose(); upd("style." + ctx.prefix, s.id); }
             }, [
               h("span", { class: "sw sm" }, [h("i", { style: "background:" + (s.color || "var(--bg-3)") })]),
-              h("span", { class: "nm", text: s.name })
+              pathName(s.name)
             ]));
           });
         });
       }
       var cols = listOf(ST.variables).concat(listOf(ST.libVariables));
+      var seen = newSeen();
       cols.forEach(function (col) {
         var vars = dedupeTokens(col.variables.filter(function (v) {
           return v.type === "COLOR" && (!q || v.name.toLowerCase().indexOf(q) > -1);
-        }));
+        }), seen);
         if (!vars.length) return;
         list.appendChild(h("div", { class: "mgroup", text: col.name + (col.remote ? "  ·  " + (col.library || "library") : "") }));
         vars.slice(0, 200).forEach(function (v) {
@@ -1977,8 +2043,10 @@ function openColorPicker(anchor, ctx) {
             }
           }, [
             h("span", { class: "sw sm" }, [h("i", { style: "background:" + (mode && mode.color ? hexAlphaCss(mode.color, mode.alpha) : "var(--bg-3)") })]),
-            h("span", { class: "nm", text: v.name }),
-            h("span", { class: "val", text: mode ? (mode.color || "") : "" })
+            // No hex column here: the swatch already is the value, and in a
+            // 184px column those 45px are the difference between reading a name
+            // and guessing at it.
+            pathName(v.name)
           ]));
         });
       });
@@ -1989,21 +2057,22 @@ function openColorPicker(anchor, ctx) {
     }
     search.addEventListener("input", fillList);
     fillList();
+  }
 
-    if (ST.recent.length) {
-      var rec = h("div", { class: "cp-sec", style: "border:none;padding:8px 0 0" }, [
-        h("div", { class: "h" }, [h("span", { class: "t", text: "Recent" })])
-      ]);
-      var sw = h("div", { class: "swatches" });
-      ST.recent.slice(0, 12).forEach(function (hex) {
-        sw.appendChild(h("div", {
-          class: "sw", title: hex,
-          onclick: function () { setHex(hex, false); }
-        }, [h("i", { style: "background:" + hex })]));
-      });
-      rec.appendChild(sw);
-      libSec.appendChild(rec);
-    }
+  function paintRecent() {
+    recSec.innerHTML = "";
+    // Empty, it must take no space at all — hence display, not opacity.
+    recSec.style.display = ST.recent.length ? "" : "none";
+    if (!ST.recent.length) return;
+    recSec.appendChild(h("div", { class: "h" }, [h("span", { class: "t", text: "Recent" })]));
+    var sw = h("div", { class: "swatches" });
+    ST.recent.slice(0, 12).forEach(function (hex) {
+      sw.appendChild(h("div", {
+        class: "sw", title: hex,
+        onclick: function () { setHex(hex, false); }
+      }, [h("i", { style: "background:" + hex })]));
+    });
+    recSec.appendChild(sw);
   }
 
   function setHex(hex, live) {
@@ -2063,7 +2132,9 @@ function openColorPicker(anchor, ctx) {
     });
   }
 
-  var pop = popOpen(anchor, body, { width: 240, align: "right", class: "cp" });
+  var pop = popOpen(anchor, body, {
+    width: twoCol ? CP_W_TWO : CP_W_ONE, align: "right", class: "cp"
+  });
   paintAll();
   // The styles-and-tokens search, not the hex field: a colour you already have a
   // token for is found by name, and the hex is still one click away.
@@ -4654,8 +4725,9 @@ function renderTokens() {
   }
 
   var q = tokenQuery.trim().toLowerCase();
+  var seenTokens = newSeen();
   cols.forEach(function (col) {
-    var vars = dedupeTokens(col.variables.filter(function (v) { return !q || v.name.toLowerCase().indexOf(q) > -1; }));
+    var vars = dedupeTokens(col.variables.filter(function (v) { return !q || v.name.toLowerCase().indexOf(q) > -1; }), seenTokens);
     if (q && !vars.length) return;
     var key = col.id;
     var open = tokenOpen[key] === undefined ? true : tokenOpen[key];

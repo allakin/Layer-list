@@ -64,7 +64,12 @@ style preference.
 
 6. **Library entries dedupe by `key`, not `id`.** A file accumulates several
    local ids for one library style or variable. Every picker also runs through
-   `dedupeStyles` / `dedupeTokens`.
+   `dedupeStyles` / `dedupeTokens` — and a picker's list is *one* list even when
+   it is drawn as several groups, so one `newSeen()` has to span all of them.
+   Local and library styles, and one block per collection, are headings, not
+   separate lists; restarting the dedupe at each heading brings the duplicate
+   straight back. When two entries are indistinguishable the library one wins:
+   it is the half that keeps the link.
    → `tests/ui/no-duplicate-styles.js`
 
 7. **Never swallow a read failure silently.** Hardening `readProps` against dead
@@ -164,6 +169,11 @@ outwait the 90 ms window (see `SETTLE` in `unreadable-selection.js`).
   `focusPickerSearch()`, never `querySelector("input")` — in the colour picker
   that is the hex field.
   → `tests/ui/picker-search-focus.js`
+- The colour picker is two columns — the palette left, the file's styles and
+  tokens right — and stacks below `CP_TWO_COL_MIN` (420 px), because the panel
+  itself goes down to 260. The palette stays first in the DOM whichever way they
+  sit: the hex field has to remain the picker's first `<input>`.
+  → `tests/ui/colour-picker-columns.js`
 - Theme: dark by default and defined without reference to Figma's variables, so
   the panel does not read as part of Figma's chrome. `data-theme="auto"` hands
   the palette back to Figma. Sizing tokens live in their own `:root` rule so they
@@ -176,7 +186,7 @@ outwait the 90 ms window (see `SETTLE` in `unreadable-selection.js`).
 npm test
 ```
 
-43 files: 2 integrity checks, 11 main-thread tests, 30 panel tests. All must pass.
+44 files: 2 integrity checks, 11 main-thread tests, 31 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that
