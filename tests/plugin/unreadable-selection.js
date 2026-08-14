@@ -48,6 +48,8 @@ f.variables.getLocalVariableCollectionsAsync = async () => [];
 require(require("path").join(__dirname, "..", "..", "plugin", "code.js"));
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+/* selectionchange is coalesced on a 90 ms timer, so every check has to outwait it */
+const SETTLE = 180;
 const last = (type) => P.posted.filter((m) => m.type === type).pop();
 
 (async () => {
@@ -55,7 +57,7 @@ const last = (type) => P.posted.filter((m) => m.type === type).pop();
   page.selection = [good];
   P.posted.length = 0;
   P.events.selectionchange();
-  await wait(60);
+  await wait(SETTLE);
   let props = last("props");
   console.log("readable layer → props:", props && props.props ? props.props.type : "(none)");
   P.expect("a readable layer produces a panel", !!(props && props.props));
@@ -64,7 +66,7 @@ const last = (type) => P.posted.filter((m) => m.type === type).pop();
   page.selection = [bad];
   P.posted.length = 0;
   P.events.selectionchange();
-  await wait(60);
+  await wait(SETTLE);
   props = last("props");
   const err = last("error");
   console.log("\nunreadable layer → props:", props ? String(props.props) : "(none)");
@@ -79,7 +81,7 @@ const last = (type) => P.posted.filter((m) => m.type === type).pop();
   page.selection = [good, bad];
   P.posted.length = 0;
   P.events.selectionchange();
-  await wait(60);
+  await wait(SETTLE);
   props = last("props");
   console.log("\nmixed selection → props:", props && props.props ? props.props.type : "(none)",
     "| inspected:", props && props.inspected);

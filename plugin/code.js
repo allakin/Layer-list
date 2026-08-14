@@ -11,6 +11,12 @@ const MAX_ROWS = 4000;        // flat rows sent to the UI in one push
 const MAX_INSPECT = 400;      // nodes merged into one property payload
 const MAX_SEARCH = 500;
 
+// Two walks run on the editor's thread every time the selection changes, so both
+// are capped. Neither has to be exhaustive: the colour strip is a summary, and
+// the background scan is what indexes the document properly.
+const COLOR_SAMPLE_NODES = 2000;
+const INDEX_SAMPLE_NODES = 500;
+
 // Types whose children Figma shows in the layer list.
 const HAS_LAYER_CHILDREN = new Set([
   "FRAME", "GROUP", "COMPONENT", "COMPONENT_SET", "INSTANCE",
@@ -53,6 +59,7 @@ async function loadPrefs() {
 const expanded = new Set();   // node ids whose children are rendered
 let searchTerm = "";
 let refreshTimer = null;
+let selectionDirty = false; // a coalesced refresh has to reveal before it lists
 let inspectDirty = true;
 
 /* ---- colour helpers ------------------------------------------------------ */
@@ -662,20 +669,36 @@ function mergeProps(list) {
   return out;
 }
 
+// The summary strip is asked for on every selection change, for up to
+// MAX_INSPECT nodes at once — on a page of screen mockups a full subtree read is
+// tens of thousands of nodes on the thread the editor draws with, and the canvas
+// stutters. Sample breadth-first within a budget: the strip shows 24 colours, so
+// what matters is covering the selection, not reading all of it.
 function selectionColors(nodes) {
   const map = new Map();
-  const visit = (node) => {
-    if ("fills" in node && node.fills !== figma.mixed) {
-      for (const f of node.fills) {
-        if (f.type === "SOLID" && f.visible !== false) {
-          const hex = rgbToHex(f.color);
-          map.set(hex, (map.get(hex) || 0) + 1);
+  const queue = nodes.slice();
+  const prev = figma.skipInvisibleInstanceChildren;
+  figma.skipInvisibleInstanceChildren = true;
+  try {
+    for (let i = 0; i < queue.length && i < COLOR_SAMPLE_NODES; i++) {
+      const node = queue[i];
+      if (!nodeAlive(node)) continue;
+      let fills = null;
+      try { fills = "fills" in node ? node.fills : null; } catch (e) { fills = null; }
+      if (fills && fills !== figma.mixed && Array.isArray(fills)) {
+        for (const f of fills) {
+          if (f.type === "SOLID" && f.visible !== false) {
+            const hex = rgbToHex(f.color);
+            map.set(hex, (map.get(hex) || 0) + 1);
+          }
         }
       }
+      const kids = queue.length < COLOR_SAMPLE_NODES ? safeChildren(node) : null;
+      if (kids) for (const c of kids) queue.push(c);
     }
-    if ("children" in node) for (const c of node.children) visit(c);
-  };
-  for (const n of nodes) visit(n);
+  } finally {
+    figma.skipInvisibleInstanceChildren = prev;
+  }
   return [...map.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 24)
@@ -865,6 +888,10 @@ function scheduleRefresh(withProps) {
   if (refreshTimer) return;
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
+    if (selectionDirty) {
+      selectionDirty = false;
+      try { revealSelection(); } catch (e) { /* stale nodes; the rows still push */ }
+    }
     try {
       pushLayers();
     } catch (e) { /* the tree moved under us; the next event repaints */ }
@@ -907,14 +934,15 @@ function bindPageWatcher() {
   }
 }
 
+// Dragging a marquee fires this on every pointer move, and each one used to
+// reveal, re-list, re-read and re-harvest the whole selection straight away.
+// One coalesced pass per burst instead — 90 ms is under the eye's threshold, and
+// the token harvest can wait for the pointer to stop altogether.
 figma.on("selectionchange", () => {
-  try {
-    revealSelection();
-    pushLayers();
-  } catch (e) { /* stale nodes in the selection; the push below still runs */ }
-  pushSelectionSoon();
+  selectionDirty = true;
+  scheduleRefresh(true);
   // Whatever you just clicked is the cheapest possible source of new tokens.
-  indexNodes(figma.currentPage.selection).catch(noop);
+  queueNodeIndex(figma.currentPage.selection);
 });
 
 figma.on("currentpagechange", () => {
@@ -1955,28 +1983,59 @@ async function mergeVariableIds(ids) {
   return added;
 }
 
-// Everything the selection touches, resolved right away — nearly free and it
-// means clicking a layer is usually enough to surface its tokens.
+// What the nodes you touched are made of, so clicking a layer is usually enough
+// to surface its tokens without waiting for the scan to reach them.
 async function indexNodes(nodes) {
   const styleIds = new Set(), varIds = new Set();
+  // Every id gathered here costs a getStyleByIdAsync / getVariableByIdAsync round
+  // trip below, so the walk is capped as tightly as the reading is: clicking a
+  // screen must not queue thousands of lookups the background scan will make anyway.
+  let budget = INDEX_SAMPLE_NODES;
   const visit = (node, depth) => {
-    if (!nodeAlive(node)) return;
+    if (budget-- <= 0 || !nodeAlive(node)) return;
     harvestNode(node, styleIds, varIds);
     if (depth >= 6) return;
     const kids = safeChildren(node);
-    if (kids) for (const c of kids) visit(c, depth + 1);
+    if (kids) for (const c of kids) {
+      if (budget <= 0) return;
+      visit(c, depth + 1);
+    }
   };
-  for (const n of nodes.slice(0, 50)) visit(n, 0);
+  // A burst reports the same nodes repeatedly; without this they would eat the
+  // budget and the rest of the batch would never be looked at.
+  const seenIds = new Set();
+  const unique = [];
+  for (const n of nodes) {
+    const id = safe(() => n.id, null);
+    if (!id || seenIds.has(id)) continue;
+    seenIds.add(id);
+    unique.push(n);
+  }
+  const prev = figma.skipInvisibleInstanceChildren;
+  figma.skipInvisibleInstanceChildren = true;
+  try {
+    for (const n of unique.slice(0, 50)) {
+      if (budget <= 0) break;
+      visit(n, 0);
+    }
+  } finally {
+    figma.skipInvisibleInstanceChildren = prev;
+  }
   if (!styleIds.size && !varIds.size) return 0;
   const added = (await mergeStyleIds(styleIds)) + (await mergeVariableIds(varIds));
   if (added) { saveIndexSoon(); pushLibraryData(); }
   return added;
 }
 
-// nodechange fires in bursts, so batch the ids and resolve once things settle.
+// nodechange and selectionchange both fire in bursts, so batch the nodes and
+// resolve once things settle. A long drag reports the same nodes over and over,
+// hence the ceiling — the batch is deduped by id when it is read.
 function queueNodeIndex(nodes) {
   if (!pendingIds) pendingIds = [];
-  for (const n of nodes) if (nodeAlive(n)) pendingIds.push(n);
+  for (const n of nodes) {
+    if (pendingIds.length >= 500) break;
+    if (nodeAlive(n)) pendingIds.push(n);
+  }
   if (pendingTimer) return;
   pendingTimer = setTimeout(async () => {
     pendingTimer = null;

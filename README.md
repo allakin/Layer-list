@@ -3,7 +3,7 @@
 A Figma plugin that reproduces the native **Layers** and **Design** panels, so you
 can collapse Figma's own panels and work from the plugin window instead.
 
-![no screenshot yet](https://img.shields.io/badge/figma-plugin-black) ![tests](https://img.shields.io/badge/tests-39-green)
+![no screenshot yet](https://img.shields.io/badge/figma-plugin-black) ![tests](https://img.shields.io/badge/tests-40-green)
 
 ## Install
 
@@ -52,7 +52,7 @@ field, to fills and strokes, to effects and grids.
 
 ```sh
 npm install     # jsdom, for the tests
-npm test        # 39 files: integrity checks + behaviour
+npm test        # 40 files: integrity checks + behaviour
 ```
 
 ```sh

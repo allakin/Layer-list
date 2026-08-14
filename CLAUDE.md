@@ -77,14 +77,19 @@ style preference.
    property key, then a natural sort.
    → `tests/ui/component-property-order.js`
 
-9. **A layer can contain itself.** Slot content and recursive instances put the
-   same id inside its own subtree. Every walk over `children` needs the path it
-   came by; without it the tree runs to `MAX_ROWS` a thousand levels deep, and a
-   deep expand blows the stack. `.lrow` is as wide as its content, so a pane next
-   to it must never take its width from what it holds.
-   → `tests/plugin/self-nesting-layer.js`, `tests/ui/deep-rows-keep-inspector.js`
+9. **Nothing on the selection path may read a whole subtree.** It runs on the
+   editor's thread, for up to `MAX_INSPECT` nodes, on every pointer move of a
+   marquee. Coalesce the pushes and give every walk a budget.
+   → `tests/plugin/selection-cost.js`
 
-10. **A page's selection only accepts nodes from that page.** The trap is
+10. **A layer can contain itself.** Slot content and recursive instances put the
+    same id inside its own subtree. Every walk over `children` needs the path it
+    came by; without it the tree runs to `MAX_ROWS` a thousand levels deep, and a
+    deep expand blows the stack. `.lrow` is as wide as its content, so a pane next
+    to it must never take its width from what it holds.
+    → `tests/plugin/self-nesting-layer.js`, `tests/ui/deep-rows-keep-inspector.js`
+
+11. **A page's selection only accepts nodes from that page.** The trap is
     `getMainComponentAsync()`: it answers for a library instance too, but that
     node hangs off no page, so selecting it throws. Find the page first and bail
     out when there isn't one.
@@ -123,8 +128,21 @@ up as stutter in the canvas. The background scan is built around that:
   startup — the saved index covers the first paint, the catalogue is requested
   when a picker asks for it.
 
-Tests that depend on the scan have to outwait `SCAN_START_DELAY_MS`; see
-`SCAN_WAIT` in the index tests.
+Selection is the other hot path, because a marquee fires `selectionchange` on
+every pointer move and each one used to do all of the work at once:
+
+- the handler only sets a flag and calls `scheduleRefresh`, so a burst costs one
+  reveal, one layer push and one property read (**90 ms** window);
+- the token harvest goes through `queueNodeIndex`, the same **400 ms** debounce
+  the edits use, and is deduped by id — a drag reports the same nodes repeatedly;
+- both subtree walks are capped: `COLOR_SAMPLE_NODES` for the colour strip
+  (breadth-first, so a big selection is still covered) and
+  `INDEX_SAMPLE_NODES` for the index, where every id found costs a lookup.
+  Neither needs to be exhaustive — the background scan is the thorough one.
+
+Tests that depend on the scan have to outwait `SCAN_START_DELAY_MS` (see
+`SCAN_WAIT` in the index tests); tests that fire `selectionchange` have to
+outwait the 90 ms window (see `SETTLE` in `unreadable-selection.js`).
 
 ## Conventions
 
@@ -144,7 +162,7 @@ Tests that depend on the scan have to outwait `SCAN_START_DELAY_MS`; see
 npm test
 ```
 
-39 files: 2 integrity checks, 9 main-thread tests, 28 panel tests. All must pass.
+40 files: 2 integrity checks, 10 main-thread tests, 28 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that
