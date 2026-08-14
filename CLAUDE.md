@@ -7,18 +7,18 @@ native ones can be collapsed and the plugin used in their place.
 
 | Path | What lives there |
 | --- | --- |
-| `src/manifest.json` | Plugin manifest. `documentAccess: dynamic-page`. |
-| `src/code.js` | Main thread. Reads and writes the document, owns the design-system index. |
-| `src/ui.html` | The entire panel — markup, CSS and script in one file. |
+| `plugin/manifest.json` | Plugin manifest. `documentAccess: dynamic-page`. |
+| `plugin/code.js` | Main thread. Reads and writes the document, owns the design-system index. |
+| `plugin/ui.html` | The entire panel — markup, CSS and script in one file. |
 | `tests/` | Integrity checks and behavioural tests. `npm test`. |
 
-Everything the plugin ships is under `src/`; everything that supports it is under
-`tests/`. The four files left at the root have to be there: `package.json` and
+Everything the plugin ships is under `plugin/`; everything that supports it is
+under `tests/`. The four files left at the root have to be there: `package.json` and
 `package-lock.json` for npm, `.gitignore` for git, and this file so Claude Code
 loads it automatically.
 
-No build step, on purpose. Figma loads `src/code.js` and `src/ui.html` directly, so the
-files you edit are the files that ship. Do not introduce a bundler without a
+No build step, on purpose. Figma loads `plugin/code.js` and `plugin/ui.html`
+directly, so the files you edit are the files that ship. Do not introduce a bundler without a
 reason that survives that trade-off.
 
 ## The two sides talk over postMessage

@@ -6,7 +6,7 @@
       "Bash(npm run test:ui)",
       "Bash(npm run test:plugin)",
       "Bash(node tests/run.js:*)",
-      "Bash(node --check src/code.js)",
+      "Bash(node --check plugin/code.js)",
       "Bash(git status)",
       "Bash(git diff:*)",
       "Bash(git log:*)"

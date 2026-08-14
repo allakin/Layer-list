@@ -35,7 +35,7 @@ console.log("stays hidden:         ", boot().classList.contains("gone"));
 
 /* and there is a timeout so a stalled step cannot trap anyone */
 const script = require("fs").readFileSync(
-  require("path").join(__dirname, "..", "..", "src", "ui.html"), "utf8");
+  require("path").join(__dirname, "..", "..", "plugin", "ui.html"), "utf8");
 console.log("has a safety timeout: ", /setTimeout\(bootDone, \d+\)/.test(script));
 
 console.log("\nERRORS:", errors.length ? errors : "(none)");

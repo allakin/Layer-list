@@ -12,7 +12,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const ROOT = path.join(__dirname, "..", "..", "src");
+const ROOT = path.join(__dirname, "..", "..", "plugin");
 const code = fs.readFileSync(path.join(ROOT, "code.js"), "utf8");
 const html = fs.readFileSync(path.join(ROOT, "ui.html"), "utf8");
 const ui = html.match(/<script>([\s\S]*)<\/script>/)[1];

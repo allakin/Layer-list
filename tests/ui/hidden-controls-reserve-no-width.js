@@ -53,5 +53,5 @@ console.log("\nPAINT / EFFECT ROWS");
 });
 
 console.log("\nno opacity-based hiding left:",
-  !/opacity: 0;/.test(require("fs").readFileSync(require("path").join(__dirname, "..", "..", "src", "ui.html"),"utf8")));
+  !/opacity: 0;/.test(require("fs").readFileSync(require("path").join(__dirname, "..", "..", "plugin", "ui.html"),"utf8")));
 console.log("\nERRORS:", errors.length ? errors : "(none)");

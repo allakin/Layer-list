@@ -44,7 +44,7 @@ page.findAllWithCriteria=()=>[];
 f.root.children=[page]; f.currentPage=page;
 f.root.id = "doc-1";
 
-require(require("path").join(__dirname, "..", "..", "src", "code.js"));
+require(require("path").join(__dirname, "..", "..", "plugin", "code.js"));
 
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
 /* The scan holds off for SCAN_START_DELAY_MS so the editor keeps its frames;
@@ -89,7 +89,7 @@ function counts(tag) {
   const before = last("libraryVariables").collections.reduce((n,c)=>n+c.variables.length,0);
   // trigger the same code path nodechange uses
   await (async () => {
-    const idx = require(require("path").join(__dirname, "..", "..", "src", "code.js"));
+    const idx = require(require("path").join(__dirname, "..", "..", "plugin", "code.js"));
   })().catch(()=>{});
   console.log("\ntokens before top-up:", before);
 

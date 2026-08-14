@@ -17,7 +17,7 @@ const page = P.mkNode({ id:"page", name:"Page 1", type:"PAGE", children:[
 ]});
 page.selection = []; page.on=()=>{}; page.off=()=>{}; page.loadAsync=async()=>{}; page.findAll=()=>[];
 f.root.children=[page]; f.currentPage=page;
-require(require("path").join(__dirname, "..", "..", "src", "code.js"));
+require(require("path").join(__dirname, "..", "..", "plugin", "code.js"));
 
 (async () => {
   for (const id of ["comp","f933","out"]) await P.send({ type:"setExpanded", id, expanded:true });

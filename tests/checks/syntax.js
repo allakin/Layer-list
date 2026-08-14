@@ -7,7 +7,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
-const ROOT = path.join(__dirname, "..", "..", "src");
+const ROOT = path.join(__dirname, "..", "..", "plugin");
 let failed = 0;
 
 function check(label, source, filename) {

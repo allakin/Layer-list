@@ -8,13 +8,13 @@ can collapse Figma's own panels and work from the plugin window instead.
 ## Install
 
 1. Figma → **Plugins → Development → Import plugin from manifest…**
-2. Pick `src/manifest.json`.
+2. Pick `plugin/manifest.json`.
 
-No build step. Figma loads `src/code.js` and `src/ui.html` as they are.
+No build step. Figma loads `plugin/code.js` and `plugin/ui.html` as they are.
 
 ```
-src/     the plugin: manifest, main thread, panel
-tests/   integrity checks, harnesses and behavioural tests
+plugin/   manifest, main thread, panel — what Figma loads
+tests/    integrity checks, harnesses and behavioural tests
 ```
 
 ## What it does
@@ -62,9 +62,9 @@ npm run test:plugin    # the main thread, against a stubbed Figma API
 node tests/run.js theme    # anything matching "theme"
 ```
 
-The tests need no Figma: `tests/harness/ui.js` loads `src/ui.html` into jsdom and
+The tests need no Figma: `tests/harness/ui.js` loads `plugin/ui.html` into jsdom and
 speaks the plugin's postMessage protocol; `tests/harness/plugin.js` stubs enough
-of the Figma API to load `src/code.js` and drive it.
+of the Figma API to load `plugin/code.js` and drive it.
 
 Conventions, the reasoning behind the tricky parts, and what the Plugin API
 cannot do are in [CLAUDE.md](CLAUDE.md). Read it before changing the message

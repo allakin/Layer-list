@@ -1,7 +1,7 @@
 const fs = require("fs");
 const { JSDOM } = require("jsdom");
 
-const html = fs.readFileSync(require("path").join(__dirname, "..", "..", "src", "ui.html"), "utf8");
+const html = fs.readFileSync(require("path").join(__dirname, "..", "..", "plugin", "ui.html"), "utf8");
 const errors = [];
 const sent = [];
 

@@ -35,7 +35,7 @@ page.on = (t, fn) => { P.pageEvents[t] = fn; };
 page.off = () => {};
 f.root.children=[page]; f.currentPage=page; f.root.id="doc-2";
 
-require(require("path").join(__dirname, "..", "..", "src", "code.js"));
+require(require("path").join(__dirname, "..", "..", "plugin", "code.js"));
 const wait = ms => new Promise(r=>setTimeout(r,ms));
 /* The scan holds off for SCAN_START_DELAY_MS so the editor keeps its frames;
    these waits have to clear that. */
