@@ -76,3 +76,7 @@ The plugin window floats — Figma has no docking API — and hovering a row can
 highlight the layer on canvas, because canvas hover events are not exposed.
 Library styles cannot be listed by the API, so they are found by scanning what
 the document already uses; the Tokens tab says as much and offers a deeper scan.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
