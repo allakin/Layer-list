@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test)",
+      "Bash(npm run test:checks)",
+      "Bash(npm run test:ui)",
+      "Bash(npm run test:plugin)",
+      "Bash(node tests/run.js:*)",
+      "Bash(node --check code.js)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ]
+  }
+}

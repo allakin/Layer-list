@@ -1,0 +1,13 @@
+{
+  "name": "Layers & Design",
+  "id": "layer-list-settings-plugin",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "reasoning": "The panel only reads and writes the current document; nothing leaves Figma."
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "figma-layers-and-design",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A Figma plugin that reproduces the native Layers and Design panels.",
+  "scripts": {
+    "test": "node tests/run.js",
+    "test:checks": "node tests/run.js checks",
+    "test:ui": "node tests/run.js ui",
+    "test:plugin": "node tests/run.js plugin"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}
