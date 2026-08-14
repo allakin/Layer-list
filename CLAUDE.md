@@ -77,6 +77,12 @@ style preference.
    property key, then a natural sort.
    → `tests/ui/component-property-order.js`
 
+9. **A page's selection only accepts nodes from that page.** The trap is
+   `getMainComponentAsync()`: it answers for a library instance too, but that
+   node hangs off no page, so selecting it throws. Find the page first and bail
+   out when there isn't one.
+   → `tests/plugin/library-main-component.js`
+
 ## What the API cannot do
 
 Do not spend time trying to work around these; say so in the UI instead.
@@ -90,6 +96,8 @@ Do not spend time trying to work around these; say so in the UI instead.
   files. Use `figma.currentPage.on("nodechange")`.
 - A plain `LINE` exposes one stroke cap for both ends; only `VECTOR` (per vertex)
   and `CONNECTOR` (dedicated properties) have independent ends.
+- Nothing opens another file, so "Go to main component" can only report that the
+  component is in a library.
 - No canvas hover events, no docking, no eyedropper, no library file name.
 
 ## Keeping the editor responsive
@@ -129,7 +137,7 @@ Tests that depend on the scan have to outwait `SCAN_START_DELAY_MS`; see
 npm test
 ```
 
-36 files: 2 integrity checks, 7 main-thread tests, 27 panel tests. All must pass.
+37 files: 2 integrity checks, 8 main-thread tests, 27 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that

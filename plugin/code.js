@@ -1656,10 +1656,14 @@ async function runAction(action, ids) {
       for (const n of nodes) {
         if (n.type !== "INSTANCE") continue;
         const main = await n.getMainComponentAsync();
-        if (!main) { figma.notify("Main component is in a library"); return; }
-        const page = mainPageOf(main);
-        if (page && page !== figma.currentPage) await figma.setCurrentPageAsync(page);
-        figma.currentPage.selection = [main];
+        // An instance of a library component does answer this call, but the node
+        // it hands back belongs to no page of this document, and a page's
+        // selection only accepts its own nodes. There is no way to open the
+        // library file from here, so say so rather than throw.
+        const page = main ? mainPageOf(main) : null;
+        if (!main || main.remote || !page) { figma.notify("Main component is in a library"); return; }
+        if (page !== figma.currentPage) await figma.setCurrentPageAsync(page);
+        page.selection = [main];
         figma.viewport.scrollAndZoomIntoView([main]);
         return;
       }
@@ -1693,10 +1697,14 @@ async function runAction(action, ids) {
   figma.commitUndo();
 }
 
+// Null for a node that hangs off no page — a library component, or one that
+// died while we were awaiting it. Reading .parent on either can throw.
 function mainPageOf(node) {
-  let p = node.parent;
-  while (p && p.type !== "PAGE") p = p.parent;
-  return p && p.type === "PAGE" ? p : null;
+  try {
+    let p = node.parent;
+    while (p && p.type !== "PAGE") p = p.parent;
+    return p && p.type === "PAGE" ? p : null;
+  } catch (e) { return null; }
 }
 
 /* =============================================================================
