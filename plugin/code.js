@@ -2965,25 +2965,62 @@ async function pushLibraryVariables(opts) {
   fresh id used. Same shape as `resolveVariableForBinding` — a library token has
   always needed this; library styles turned out to need it too.
 */
+/*
+  Two ways in, and both are reported when they fail. Swallowing the import was the
+  mistake in the first version of this: a key that no longer resolves left the id to
+  fail on its own, and if *that* passed without doing anything visible, applying a
+  library style looked like a button that does nothing at all.
+*/
+const STYLE_KIND = {
+  setFillStyleIdAsync: "PAINT", setStrokeStyleIdAsync: "PAINT",
+  setTextStyleIdAsync: "TEXT", setEffectStyleIdAsync: "EFFECT",
+  setGridStyleIdAsync: "GRID"
+};
+
 async function setStyle(node, setter, id, libraryKey) {
+  const want = STYLE_KIND[setter];
+  let importFailure = null;
+
   if (libraryKey) {
-    const style = await safeAsync(() => figma.importStyleByKeyAsync(libraryKey), null);
-    if (style && style.id) { await node[setter](style.id); return; }
+    let style = null;
+    try {
+      style = await figma.importStyleByKeyAsync(libraryKey);
+    } catch (e) {
+      importFailure = errText(e);
+    }
+    if (style && style.id) {
+      // A key that resolves to the wrong kind of style would otherwise be an
+      // opaque throw from the setter.
+      if (want && style.type && style.type !== want) {
+        throw new Error("“" + (style.name || libraryKey) + "” is a " +
+          String(style.type).toLowerCase() + " style, not " + want.toLowerCase());
+      }
+      await node[setter](style.id);
+      return;
+    }
+    if (!importFailure) importFailure = "the library did not answer for it";
   }
+
   try {
     await node[setter](id);
   } catch (e) {
-    // The id was a local one and it has gone. Say which half of that is the
-    // problem, rather than passing on Figma's wording for it.
-    if (/find style/i.test(errText(e))) {
+    const said = errText(e);
+    // Both halves failed: the key could not be imported and the id the index
+    // remembered has gone. Say so, and say what each of them said.
+    if (importFailure) {
+      throw new Error("Could not apply that library style — importing it said “" +
+        importFailure + "”, and the id the index remembers is stale (" + said + ")");
+    }
+    if (/find style/i.test(said)) {
       throw new Error("That style is not in this file any more — re-index to pick it up");
     }
     throw e;
   }
-}
-
-async function safeAsync(fn, fallback) {
-  try { return await fn(); } catch (e) { return fallback; }
+  // The id worked, but only after the key failed: the index is out of date, and
+  // the next session will have the same trouble unless it is re-scanned.
+  if (importFailure) {
+    figma.notify("Applied from a stale index entry — re-index to keep library styles working");
+  }
 }
 
 // A library variable has to be imported into the file before it can be bound.
@@ -3315,6 +3352,21 @@ async function handleMessage(msg) {
       if (msg.key === "name" || msg.key === "visible" || msg.key === "locked" || msg.key === "isMask") {
         pushLayers();
       }
+      return;
+    }
+
+    /*
+      The arrows, answered on the panel's behalf: an iframe that has the focus
+      cannot give it back to the canvas, so the nudge has to come through here.
+      A delta on the canvas, converted into each layer's own parent — the same
+      thing align does — and auto layout keeps the layers it positions.
+    */
+    case "nudge": {
+      const movable = (await selectedNodes()).filter((n) => "x" in n && !isLayoutManaged(n));
+      if (!movable.length) return;
+      for (const n of movable) nudgeAbsolute(n, msg.dx || 0, msg.dy || 0);
+      figma.commitUndo();
+      await pushSelection();
       return;
     }
 

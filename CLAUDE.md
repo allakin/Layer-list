@@ -91,6 +91,23 @@ style preference.
    rule the colour picker's own fields follow.
    → `tests/ui/arrow-stepping.js`
 
+   But only while the selection holds. A push for a *different* layer drops what
+   was half-typed, and an input that has been replaced (`!input.isConnected`) does
+   not commit at all: clicking another layer on the canvas takes the focus out of
+   the iframe, so the old field's `blur` — and the commit riding on it — landed
+   after the selection had changed, turning the newly picked layer by an angle
+   typed for the previous one. A field is also seeded as already committed, so
+   clicking into one and out again writes nothing, and Escape puts the old value
+   back without sending it.
+   → `tests/ui/field-follows-selection.js`
+
+   Nothing can hand the keyboard back to Figma's canvas — an iframe with the focus
+   keeps it until something outside is clicked, `window.blur()` does not help and
+   there is no API. So the panel answers the arrows itself when no field or the
+   tree holds them, and nudges the selection (`nudge`, shift for ten) the way the
+   canvas would. That is what "type a value, press Enter, nudge" needs.
+   → `tests/ui/arrow-nudge.js`
+
 6. **Library entries dedupe by `key`, not `id`.** A file accumulates several
    local ids for one library style or variable. Every picker also runs through
    `dedupeStyles` / `dedupeTokens` — and a picker's list is *one* list even when
@@ -108,6 +125,13 @@ style preference.
    successfully: Cannot find style`. `setStyle()` imports by key first, the way
    `resolveVariableForBinding()` always has for tokens.
    → `tests/plugin/library-style-apply.js`
+
+   An **untouched section keeps its style picker**. Collapsed to a greyed title and
+   a single "+", the Effects section left no way to put an effect style on a layer
+   that had no effect yet — and an effect style *is* the effect, so the style had to
+   be reached by adding a drop shadow first. `emptySection()` takes the same button
+   the filled one shows.
+   → `tests/ui/library-style-sections.js`
 
 7. **Never swallow a read failure silently.** Hardening `readProps` against dead
    nodes once turned every unreadable node into an empty panel with no clue why.
@@ -328,6 +352,13 @@ watch the window position have to outwait `POS_POLL_MS` plus the save debounce.
   `focusPickerSearch()`, never `querySelector("input")` — in the colour picker
   that is the hex field.
   → `tests/ui/picker-search-focus.js`
+- A name in a picker list is never shortened: `.tok-list` scrolls sideways and
+  `.tok-row` is as wide as its content (`min-width: 100%` so a short row still
+  highlights the full width). A semantic token like `Base Semantic/Info Medium
+  Hover` is nearly all tail, so a 184px column cut *both* halves of it and left
+  rows that could not be told apart. `pathName()` still sets the group apart, but
+  by colour rather than by being the half that gets dropped.
+  → `tests/ui/colour-picker-columns.js`
 - The colour picker is two columns — the palette left, the file's styles and
   tokens right — and stacks below `CP_TWO_COL_MIN` (420 px), because the panel
   itself goes down to 260. The palette stays first in the DOM whichever way they
@@ -348,7 +379,7 @@ watch the window position have to outwait `POS_POLL_MS` plus the save debounce.
 npm test
 ```
 
-54 files: 2 integrity checks, 17 main-thread tests, 35 panel tests. All must pass.
+57 files: 2 integrity checks, 17 main-thread tests, 38 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that

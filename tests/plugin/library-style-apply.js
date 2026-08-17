@@ -97,14 +97,41 @@ const applyStyle = (id, key) =>
   P.expect("and says what is wrong in words that suggest what to do",
     /not in this file any more/.test(notes()[0]) && !/Cannot set style successfully/.test(notes()[0]));
 
-  /* ---- a key that no longer resolves either ---- */
-  /* The import throws; the id is tried anyway, because it may still be good. */
+  /* ---- a key that no longer resolves, but an id that still works ---- */
+  /* The import throws; the id is tried anyway, because it may still be good. It
+     works here — and that is still worth saying, because the index is out of date
+     and the next session will not be so lucky. Swallowing this was what turned a
+     library style into a button that did nothing. */
   P.posted.length = 0; applied = []; imported = [];
   await applyStyle("S:local-grey", "a-key-nobody-published");
-  console.log("bad key, good id -> imported:", JSON.stringify(imported), "applied:", JSON.stringify(applied));
+  console.log("bad key, good id -> imported:", JSON.stringify(imported),
+    "applied:", JSON.stringify(applied), "| said:", JSON.stringify(notes()));
   P.expect("the key was tried", imported.length === 1);
   P.expect("and the id carried it through anyway", applied[0] === "S:local-grey");
-  P.expect("with nothing reported, because nothing failed in the end", notes().length === 0);
+  P.expect("with the stale index mentioned, not passed over in silence",
+    notes().length === 1 && /re-index/.test(notes()[0]));
+
+  /* ---- both halves failing says what each of them said ---- */
+  P.posted.length = 0; applied = []; imported = [];
+  await applyStyle("S:gone", "a-key-nobody-published");
+  console.log("bad key, dead id -> said:", JSON.stringify(notes()));
+  P.expect("the failure is reported", notes().length === 1);
+  P.expect("it names the layer", /Line 7/.test(notes()[0]));
+  P.expect("says the import failed", /Unable to create style/.test(notes()[0]));
+  P.expect("and says the remembered id is stale too",
+    /stale/.test(notes()[0]) && /Cannot find style/.test(notes()[0]));
+
+  /* ---- a key that resolves to the wrong kind of style ---- */
+  P.posted.length = 0; applied = []; imported = [];
+  f.importStyleByKeyAsync = async (key) => {
+    imported.push(key);
+    return { id: "S:a-text-style", key: key, name: "Heading/H2", type: "TEXT" };
+  };
+  await applyStyle("S:local-grey", "text-style-key");
+  console.log("wrong kind of style ->", JSON.stringify(notes()), "| applied:", JSON.stringify(applied));
+  P.expect("nothing was applied", applied.length === 0);
+  P.expect("and it says what kind it actually is",
+    notes().length === 1 && /text style, not paint/.test(notes()[0]));
 
   P.posted.length = 0;
   P.finish();

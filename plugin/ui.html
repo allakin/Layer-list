@@ -612,20 +612,26 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
   background: var(--bg-2); border-radius: 5px; padding: 0 6px; margin-bottom: 4px;
 }
 .psearch::placeholder { color: var(--text-3); }
+/* The list scrolls sideways rather than shortening names. A token called
+   `Base Semantic/Info Medium Hover` is nearly all tail, so a 184px column cut both
+   halves of it and left rows that could not be told apart — the whole name is
+   there to be read, the way the layer tree already handles long names. */
 .tok-list { max-height: 168px; overflow: auto; }
 .tok-row {
   display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px;
-  border-radius: 4px; cursor: default; min-width: 0;
+  border-radius: 4px; cursor: default;
+  /* As wide as the name, and never narrower than the list: a short row still
+     highlights across the full width, a long one reaches past it and scrolls. */
+  width: max-content; min-width: 100%; box-sizing: border-box;
 }
 .tok-row:hover { background: var(--bg-hover); }
 .tok-row.on { background: var(--bg-sel); }
-.tok-row .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The prefix carries the whole shrink (factor 100 against the leaf's 1), so a
-   name only ever loses the group it is in, never what makes it itself. */
-.tok-row .nm.path { display: flex; align-items: center; min-width: 0; }
-.tok-row .nm .pre { flex: 0 100 auto; min-width: 0; color: var(--text-3);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tok-row .nm .leaf { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tok-row .nm { flex: 0 0 auto; white-space: nowrap; }
+/* The prefix is still set apart, but as colour rather than as the half that gets
+   cut: the group is context, the leaf is which one this is. */
+.tok-row .nm.path { display: flex; align-items: center; }
+.tok-row .nm .pre { flex: 0 0 auto; color: var(--text-3); white-space: nowrap; }
+.tok-row .nm .leaf { flex: 0 0 auto; white-space: nowrap; }
 .tok-row .val { color: var(--text-3); flex: 0 0 auto; }
 /* ---- gradient ramp and its stops ---------------------------------------- */
 /* The ramp always reads left to right: it edits stop positions, and where the
@@ -1287,6 +1293,7 @@ var ST = {
   types: [],
   colors: null,
   bbox: null,          // the selection's size, for the Scale pane
+  propIds: null,       // whose properties are on screen, as a joined key
 
   // Arrangement. All of this comes back from clientStorage on open, so it is
   // seeded with the same defaults the main thread holds.
@@ -1426,7 +1433,9 @@ function commitOn(input, run) {
   input.addEventListener("keydown", function (e) {
     if (e.key === "Enter") { e.preventDefault(); input.blur(); }
   });
-  input.addEventListener("blur", run);
+  // Same rule as field()'s own commit: once the input has been replaced, the blur
+  // that follows is about a control that no longer exists.
+  input.addEventListener("blur", function () { if (input.isConnected) run(); });
 }
 
 function iconBtn(icon, opts) {
@@ -1509,10 +1518,22 @@ function field(opts) {
     same field is suppressed; typing again clears the guard, and a repaint builds
     a new field with a fresh one.
   */
-  var committed = null, stepping = false;
+  // Seeded with what the field opens showing, so merely clicking into a field and
+  // out again writes nothing: an undo step and a document round trip for a value
+  // nobody touched — and, in a field that applies rather than assigns, an edit.
+  // Typing clears it; every path that puts a value back sets it again.
+  var committed = input.value, stepping = false;
   input.addEventListener("input", function () { committed = null; });
 
   function commit(raw) {
+    /*
+      A field that has been replaced no longer speaks for anything. Clicking
+      another layer on the canvas rebuilds the inspector *and* takes the focus out
+      of the iframe, so the old input's blur arrived after the selection had
+      already changed — and typing an angle, then picking a different layer, turned
+      that layer by the number meant for the first one.
+    */
+    if (!input.isConnected) return;
     if (raw === committed) return;
     committed = raw;
     if (o.text != null) { if (raw !== o.text) o.onChange(raw); return; }
@@ -1533,7 +1554,13 @@ function field(opts) {
   }
   input.addEventListener("keydown", function (e) {
     if (e.key === "Enter") { e.preventDefault(); commit(input.value); input.blur(); return; }
-    if (e.key === "Escape") { input.value = isMixed ? "" : fmt(o.value, o.dp); input.blur(); return; }
+    // Escape means "never mind": putting the old value back must not write it.
+    if (e.key === "Escape") {
+      input.value = isMixed ? "" : fmt(o.value, o.dp);
+      committed = input.value;
+      input.blur();
+      return;
+    }
     if (o.text != null) return;
     if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       e.preventDefault();
@@ -1707,10 +1734,17 @@ function section(title, opts) {
   return { wrap: wrap, body: body, actions: acts };
 }
 
-// An empty Fill / Stroke / Effects / Export section collapses to a greyed title
-// with a single "+", the way Figma renders untouched sections.
-function emptySection(title, addTitle, onAdd) {
+/*
+  An empty Fill / Stroke / Effects / Export section collapses to a greyed title
+  with a single "+", the way Figma renders untouched sections — but it keeps the
+  section's style picker when it has one. Without it there was no way to put a
+  library effect style on a layer that had no effect yet: the only control was
+  "+", so the style had to be reached by adding a drop shadow first and applying
+  the style over it.
+*/
+function emptySection(title, addTitle, onAdd, styleBtn) {
   var sec = section(title, { empty: true });
+  if (styleBtn) sec.actions.appendChild(styleBtn);
   sec.actions.appendChild(iconBtn(I.plus, { title: addTitle, stick: true, onClick: onAdd }));
   return sec;
 }
@@ -3238,6 +3272,9 @@ $("page-btn").addEventListener("click", function () {
    ========================================================================== */
 
 var pendingRender = false;
+// Set by the props handler when the push is about a different layer, so the next
+// render knows not to carry a half-typed value over to it.
+var newSelection = false;
 var inspEl = $("insp-body");
 
 function isMix(v) { return v === MIXED; }
@@ -3304,8 +3341,13 @@ function renderInspector() {
   if (popIsOpen()) { pendingRender = true; return; }
   var scroll = inspEl.scrollTop;
   var focusKey = null, caret = null, typed = null;
+  // A different layer is a different set of values: whatever was half-typed was
+  // about the one before it, and keeping it would show the wrong number and — once
+  // the field was left — write it to the wrong layer.
+  var keep = !newSelection;
+  newSelection = false;
   var ae = document.activeElement;
-  if (ae && ae.tagName === "INPUT" && inspEl.contains(ae)) {
+  if (keep && ae && ae.tagName === "INPUT" && inspEl.contains(ae)) {
     var fld = ae.closest("[data-key]");
     // The text as well as the focus. A rebuilt field is built from the last push,
     // which lags what is being typed or stepped: holding shift+arrow sent an edit
@@ -4205,24 +4247,30 @@ function paintSection(kind) {
   var title = isFill ? "Fill" : "Stroke";
   var styled = styleId && !isMix(styleId) && ST.REFS[styleId];
 
-  // Untouched section: just a greyed title and a "+".
+  // The same picker whether the section has paints in it or not: a style is how a
+  // layer gets its first fill as much as its next one.
+  function styleButton() {
+    return iconBtn(styled ? I.reset : I.style, {
+      brand: !!styled,
+      title: styled ? "Paint style applied — change or detach" : "Apply a paint style or token",
+      on: !!styled,
+      onClick: function (e) {
+        openColorPicker(e.currentTarget, {
+          paint: (Array.isArray(paints) && paints[paints.length - 1]) || { type: "SOLID", color: "#000000", opacity: 1 },
+          index: Math.max(0, (Array.isArray(paints) ? paints.length : 1) - 1),
+          prefix: kind, styleId: styleId
+        });
+      }
+    });
+  }
+
+  // Untouched section: a greyed title, the style picker, and a "+".
   if (!styled && !isMix(paints) && !paints.length) {
-    return emptySection(title, "Add " + kind, function () { upd(kind + ".add"); });
+    return emptySection(title, "Add " + kind, function () { upd(kind + ".add"); }, styleButton());
   }
 
   var sec = section(title);
-  sec.actions.appendChild(iconBtn(styled ? I.reset : I.style, {
-    brand: !!styled,
-    title: styled ? "Paint style applied — change or detach" : "Apply a paint style or token",
-    on: !!styled,
-    onClick: function (e) {
-      openColorPicker(e.currentTarget, {
-        paint: (Array.isArray(paints) && paints[paints.length - 1]) || { type: "SOLID", color: "#000000", opacity: 1 },
-        index: Math.max(0, (Array.isArray(paints) ? paints.length : 1) - 1),
-        prefix: kind, styleId: styleId
-      });
-    }
-  }));
+  sec.actions.appendChild(styleButton());
   sec.actions.appendChild(iconBtn(I.plus, {
     title: "Add " + kind, stick: true, onClick: function () { upd(kind + ".add"); }
   }));
@@ -4462,34 +4510,42 @@ var EFFECT_TYPES = [
 function effectsSection() {
   var P = ST.P;
   var styledFx = P.effectStyleId && !isMix(P.effectStyleId) && ST.REFS[P.effectStyleId];
+  // Offered whether the layer has an effect yet or not: an effect style *is* the
+  // effect, so needing one first was a dead end.
+  function styleButton() {
+    return iconBtn(styledFx ? I.reset : I.style, {
+      brand: !!styledFx,
+      title: "Apply an effect style",
+      onClick: function (e) {
+        var at = e.currentTarget;
+        ensureStyles();
+        var items = [];
+        styleGroups("effect").forEach(function (grp) {
+          items.push({ group: grp.label });
+          grp.items.forEach(function (s) {
+            items.push({ label: s.name, sub: s.desc, on: P.effectStyleId === s.id,
+              run: function () { upd("style.effect", s.id, null, libKeyOf(s)); } });
+          });
+        });
+        if (!items.length) items = [{ label: "No effect styles found", disabled: true }];
+        if (P.effectStyleId) {
+          items.push("-");
+          items.push({ label: "Detach effect style", run: function () { upd("style.effect", ""); } });
+        }
+        items.push("-");
+        items.push({ label: "Index all pages for more styles", run: function () { rescanLibrary(true); } });
+        menu(at, items, { width: 220, align: "right" });
+      }
+    });
+  }
+
   if (!styledFx && !isMix(P.effects) && !P.effects.length) {
-    return emptySection("Effects", "Add effect", function () { upd("effect.add", "DROP_SHADOW"); });
+    return emptySection("Effects", "Add effect",
+      function () { upd("effect.add", "DROP_SHADOW"); }, styleButton());
   }
 
   var sec = section("Effects");
-  sec.actions.appendChild(iconBtn(styledFx ? I.reset : I.style, {
-    brand: !!styledFx,
-    title: "Apply an effect style",
-    onClick: function (e) {
-      ensureStyles();
-      var items = [];
-      styleGroups("effect").forEach(function (grp) {
-        items.push({ group: grp.label });
-        grp.items.forEach(function (s) {
-          items.push({ label: s.name, sub: s.desc, on: P.effectStyleId === s.id,
-            run: function () { upd("style.effect", s.id, null, libKeyOf(s)); } });
-        });
-      });
-      if (!items.length) items = [{ label: "No effect styles found", disabled: true }];
-      if (P.effectStyleId) {
-        items.push("-");
-        items.push({ label: "Detach effect style", run: function () { upd("style.effect", ""); } });
-      }
-      items.push("-");
-      items.push({ label: "Index all pages for more styles", run: function () { rescanLibrary(true); } });
-      menu(e.currentTarget, items, { width: 220, align: "right" });
-    }
-  }));
+  sec.actions.appendChild(styleButton());
   sec.actions.appendChild(iconBtn(I.plus, {
     title: "Add effect", stick: true, onClick: function () { upd("effect.add", "DROP_SHADOW"); }
   }));
@@ -5302,6 +5358,10 @@ onmessage = function (event) {
       break;
 
     case "props":
+      // Which layers this is about, so the render can tell "the same layer changed"
+      // from "a different layer was picked".
+      var ids = (msg.ids || []).join(",");
+      if (ids !== ST.propIds) { newSelection = true; ST.propIds = ids; }
       ST.P = msg.props;
       ST.REFS = msg.refs || {};
       ST.count = msg.count || 0;
@@ -5707,6 +5767,38 @@ $("no-panes-btn").addEventListener("click", function () { openPanelsMenu($("btn-
     rz.addEventListener("pointerup", up);
   });
 })();
+
+/* =============================================================================
+   Nudging with the arrows
+
+   Nothing hands the keyboard back to Figma's canvas. The panel is an iframe: once
+   it has the focus it keeps it until something outside is clicked, `window.blur()`
+   does not help, and there is no API for it — so "type a value, press Enter, then
+   nudge with the arrows" used to mean clicking the canvas in between.
+
+   Enter already lets go of the field. From there the panel answers the arrows
+   itself and moves the selection exactly as the canvas would, which is what that
+   reach for the arrow keys was after.
+   ========================================================================== */
+
+var NUDGE_STEP = 1, NUDGE_BIG = 10;
+
+document.addEventListener("keydown", function (e) {
+  if (!e.key || e.key.indexOf("Arrow") !== 0) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (popIsOpen() || !ST.selIds.length) return;
+  var ae = document.activeElement;
+  // A field is having its own conversation with the arrows (it steps its value),
+  // and the tree walks itself with them.
+  if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return;
+  if (ae && treeEl.contains(ae)) return;
+  var step = e.shiftKey ? NUDGE_BIG : NUDGE_STEP;
+  var dx = e.key === "ArrowLeft" ? -step : (e.key === "ArrowRight" ? step : 0);
+  var dy = e.key === "ArrowUp" ? -step : (e.key === "ArrowDown" ? step : 0);
+  if (!dx && !dy) return;
+  e.preventDefault();
+  send({ type: "nudge", dx: dx, dy: dy });
+});
 
 // The document keeps changing under us; make sure a stale popover reference
 // never blocks rendering forever.

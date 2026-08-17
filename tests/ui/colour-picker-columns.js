@@ -43,7 +43,11 @@ post({ type: "variables", collections: [
   { id: "C:1", name: "Primitives", remote: false, defaultModeId: "M:1", modes: [{ id: "M:1", name: "Value" }],
     variables: [
       { id: "V:1", name: "color/bg/default", group: "color/bg", short: "default", type: "COLOR", description: "", scopes: [],
-        byMode: { "M:1": { alias: false, aliasName: null, color: "#FFFFFF", alpha: 1, text: null } } }
+        byMode: { "M:1": { alias: false, aliasName: null, color: "#FFFFFF", alpha: 1, text: null } } },
+      /* A real semantic token: nearly all tail, and longer than the column. */
+      { id: "V:2", name: "Base Semantic/Info Medium Hover", group: "Base Semantic",
+        short: "Info Medium Hover", type: "COLOR", description: "", scopes: [],
+        byMode: { "M:1": { alias: false, aliasName: null, color: "#4B7BE5", alpha: 1, text: null } } }
     ] }] });
 check("render");
 
@@ -90,10 +94,13 @@ let names = [...right.querySelectorAll(".tok-row .nm")].map(e => e.textContent);
 console.log("filtered to:", JSON.stringify(names));
 expect("typing narrows the library list", names.length > 0 && names.every(n => /brand/i.test(n)));
 
-/* A name is a path, and what tells two of them apart is the tail. The column is
-   184px, so ellipsising from the right would turn `color/text/primary` and
-   `color/text/primary-hover` into the same row — which reads as a duplicate.
-   The group prefix is what gives way; the leaf always stays. */
+/* A name is a path, and what tells two of them apart is the tail: shortened from
+   the right, `color/text/primary` and `color/text/primary-hover` become the same
+   row, which reads as a duplicate. The column is 184px and a real semantic token
+   is longer than that in either direction, so nothing is shortened at all — the
+   list scrolls sideways instead and the whole name is there to be read. The prefix
+   is still set apart, but by colour, because the group is context and the leaf is
+   which one this is. */
 search.value = "";
 search.dispatchEvent(new w.Event("input", { bubbles: true }));
 const tokRow = [...right.querySelectorAll(".tok-row")].find(r => /color\/bg\/default/.test(r.textContent));
@@ -103,6 +110,34 @@ expect("a path name is split into prefix and leaf", !!nm && nm.classList.contain
 expect("the leaf is what the name ends in", !!nm && nm.querySelector(".leaf").textContent === "default");
 expect("the prefix is the group it sits in", !!nm && nm.querySelector(".pre").textContent === "color/bg/");
 expect("and the name still reads whole", !!nm && nm.textContent === "color/bg/default");
+
+/* ---- a name longer than the column ---- */
+const cs = (el) => w.getComputedStyle(el);
+const listEl = right.querySelector(".tok-list");
+const longRow = [...right.querySelectorAll(".tok-row")]
+  .find(r => /Info Medium Hover/.test(r.textContent));
+const longNm = longRow && longRow.querySelector(".nm");
+console.log("long token:", longNm && JSON.stringify(longNm.textContent),
+  "| leaf:", longNm && JSON.stringify(longNm.querySelector(".leaf").textContent));
+expect("a long name is in the row whole, not cut to fit",
+  !!longNm && longNm.textContent === "Base Semantic/Info Medium Hover");
+expect("including the whole of its tail",
+  !!longNm && longNm.querySelector(".leaf").textContent === "Info Medium Hover");
+
+console.log("list overflow-x:", cs(listEl).overflowX || cs(listEl).overflow,
+  "| row width:", cs(longRow).width, "min-width:", cs(longRow).minWidth,
+  "| leaf text-overflow:", cs(longNm.querySelector(".leaf")).textOverflow || "(clip)");
+expect("the list scrolls sideways to reach it",
+  /auto|scroll/.test(cs(listEl).overflowX || cs(listEl).overflow));
+expect("a row is as wide as its name", cs(longRow).width === "max-content");
+expect("and never narrower than the list, so short rows still highlight fully",
+  cs(longRow).minWidth === "100%");
+[["the name", longNm], ["its prefix", longNm.querySelector(".pre")],
+ ["its leaf", longNm.querySelector(".leaf")]].forEach(function (pair) {
+  const to = cs(pair[1]).textOverflow;
+  expect(pair[0] + " is not ellipsised any more", !to || to === "clip");
+  expect(pair[0] + " does not give up width either", cs(pair[1]).flexShrink === "0");
+});
 /* the hex column went with it: the swatch is the value, and those 45px are the
    difference between reading a name and guessing at it */
 expect("no hex column competes for the width", !right.querySelector(".tok-row .val"));
