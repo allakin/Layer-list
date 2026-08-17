@@ -200,6 +200,20 @@ style preference.
     layer loose from the design system is not something to do quietly.
     → `tests/plugin/style-backed-paint.js`
 
+19. **`x`, `y`, `width` and `height` describe a layer before it is rotated.** One
+    turned 90° reports 85 wide where 16 is what you see, and its `x` is the corner
+    the rotation turns around, which need not be any edge of the box on screen.
+    "Centre horizontally" computed from those numbers put such a layer at
+    `(70 - 85) / 2 = -7.5` inside a 70-wide frame — outside it — while Figma's own
+    panel centred it correctly. Everything that positions by numbers goes through
+    `parentBox()` / `absoluteBox()` and moves by a **delta**, never by assigning a
+    coordinate. Which space to work in is `positioner()`'s decision: the parent's,
+    because that is where `x` and `y` live and it is the only way a rotated
+    *parent* comes out right — falling back to the canvas only when the selection
+    spans several parents, since two parents share no other origin. Measure every
+    box before the first move; half a rearranged layout answers differently.
+    → `tests/plugin/align-rotated-and-nested.js`
+
 ## What the API cannot do
 
 Do not spend time trying to work around these; say so in the UI instead.
@@ -317,7 +331,7 @@ watch the window position have to outwait `POS_POLL_MS` plus the save debounce.
 npm test
 ```
 
-51 files: 2 integrity checks, 15 main-thread tests, 34 panel tests. All must pass.
+52 files: 2 integrity checks, 16 main-thread tests, 34 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that

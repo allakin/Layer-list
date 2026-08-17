@@ -1689,15 +1689,77 @@ function flipNode(node, horizontal) {
 
 /* ---- align & distribute -------------------------------------------------- */
 
-function bounds(nodes) {
+/* ---- the box a layer actually occupies ------------------------------------ */
+
+/*
+  x, y, width and height all describe a layer *before* it is rotated: one turned
+  90° reports 85 wide where 16 is what you see, and its x is the corner the
+  rotation happens around, not the left edge of anything on screen. Aligning by
+  those numbers put such a layer at (70 - 85) / 2 = -7.5 inside a 70-wide frame —
+  outside it, hard against the left edge — where Figma's own align puts it at
+  (70 - 16) / 2. So everything that positions by numbers goes through the box the
+  layer occupies, which means going through its transform.
+*/
+function boxOf(points) {
   let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
-  for (const n of nodes) {
-    x1 = Math.min(x1, n.x);
-    y1 = Math.min(y1, n.y);
-    x2 = Math.max(x2, n.x + n.width);
-    y2 = Math.max(y2, n.y + n.height);
+  for (const p of points) {
+    x1 = Math.min(x1, p[0]); y1 = Math.min(y1, p[1]);
+    x2 = Math.max(x2, p[0]); y2 = Math.max(y2, p[1]);
   }
   return { x1, y1, x2, y2, w: x2 - x1, h: y2 - y1 };
+}
+
+// The layer's own four corners, put through a 2x3 transform.
+function corners(node, t) {
+  const w = safe(() => node.width, 0), h = safe(() => node.height, 0);
+  return [[0, 0], [w, 0], [w, h], [0, h]].map((p) => [
+    t[0][0] * p[0] + t[0][1] * p[1] + t[0][2],
+    t[1][0] * p[0] + t[1][1] * p[1] + t[1][2]
+  ]);
+}
+
+// In the parent's coordinates — the same space x and y are written in.
+function parentBox(node) {
+  const t = safe(() => node.relativeTransform, null);
+  if (t) return boxOf(corners(node, t));
+  const x = safe(() => node.x, 0), y = safe(() => node.y, 0);
+  const w = safe(() => node.width, 0), h = safe(() => node.height, 0);
+  return { x1: x, y1: y, x2: x + w, y2: y + h, w, h };
+}
+
+// On the canvas — the only space a selection spanning several parents shares.
+function absoluteBox(node) {
+  const b = safe(() => node.absoluteBoundingBox, null);
+  if (!b) return parentBox(node);
+  return { x1: b.x, y1: b.y, x2: b.x + b.width, y2: b.y + b.height, w: b.width, h: b.height };
+}
+
+function bounds(nodes, box) {
+  const of = box || parentBox;
+  const pts = [];
+  for (const n of nodes) {
+    const b = of(n);
+    pts.push([b.x1, b.y1], [b.x2, b.y2]);
+  }
+  return boxOf(pts);
+}
+
+/*
+  Which space to work in. x and y are offsets inside the parent, so a selection
+  that shares one parent is positioned there — and that is also the only way to
+  get a rotated *parent* right, since the box it occupies on canvas is not its own
+  rectangle. A selection spanning parents has no such space in common: it falls
+  back to the canvas and converts each move on the way out.
+*/
+function positioner(nodes) {
+  const first = nodes[0] && nodes[0].parent;
+  const shared = nodes.every((n) => {
+    const p = safe(() => n.parent, null);
+    return p && first && p.id === first.id;
+  });
+  return shared
+    ? { box: parentBox, shared: first, move: (n, dx, dy) => { n.x += dx; n.y += dy; } }
+    : { box: absoluteBox, shared: null, move: nudgeAbsolute };
 }
 
 function alignNodes(nodes, mode) {
@@ -1706,6 +1768,7 @@ function alignNodes(nodes, mode) {
     figma.notify("These layers are positioned by auto layout");
     return;
   }
+  const at = positioner(movable);
   let box;
   if (movable.length === 1) {
     const parent = movable[0].parent;
@@ -1713,17 +1776,22 @@ function alignNodes(nodes, mode) {
       figma.notify("Nothing to align to — the layer sits on the canvas");
       return;
     }
+    // The parent's own rectangle, in the parent's own coordinates — not the box it
+    // occupies on canvas, which for a rotated frame is a different shape.
     box = { x1: 0, y1: 0, x2: parent.width, y2: parent.height, w: parent.width, h: parent.height };
   } else {
-    box = bounds(movable);
+    box = bounds(movable, at.box);
   }
   for (const n of movable) {
-    if (mode === "left") n.x = box.x1;
-    else if (mode === "centerH") n.x = box.x1 + (box.w - n.width) / 2;
-    else if (mode === "right") n.x = box.x2 - n.width;
-    else if (mode === "top") n.y = box.y1;
-    else if (mode === "centerV") n.y = box.y1 + (box.h - n.height) / 2;
-    else if (mode === "bottom") n.y = box.y2 - n.height;
+    const b = at.box(n);
+    let dx = 0, dy = 0;
+    if (mode === "left") dx = box.x1 - b.x1;
+    else if (mode === "centerH") dx = box.x1 + (box.w - b.w) / 2 - b.x1;
+    else if (mode === "right") dx = box.x2 - b.w - b.x1;
+    else if (mode === "top") dy = box.y1 - b.y1;
+    else if (mode === "centerV") dy = box.y1 + (box.h - b.h) / 2 - b.y1;
+    else if (mode === "bottom") dy = box.y2 - b.h - b.y1;
+    if (dx || dy) at.move(n, dx, dy);
   }
 }
 
@@ -1736,15 +1804,22 @@ function isLayoutManaged(node) {
 function distributeNodes(nodes, axis) {
   const list = nodes.filter((n) => "x" in n && !isLayoutManaged(n));
   if (list.length < 3) { figma.notify("Select at least 3 layers to distribute"); return; }
+  const at = positioner(list);
+  // Measured once, before anything moves: every box after the first move would
+  // otherwise be read from a layout half rearranged.
+  const boxes = new Map(list.map((n) => [n, at.box(n)]));
   const horiz = axis === "h";
-  list.sort((a, b) => (horiz ? a.x - b.x : a.y - b.y));
-  const box = bounds(list);
-  const used = list.reduce((s, n) => s + (horiz ? n.width : n.height), 0);
+  const along = (n) => (horiz ? boxes.get(n).x1 : boxes.get(n).y1);
+  const size = (n) => (horiz ? boxes.get(n).w : boxes.get(n).h);
+  list.sort((a, b) => along(a) - along(b));
+  const box = bounds(list, at.box);
+  const used = list.reduce((s, n) => s + size(n), 0);
   const gap = ((horiz ? box.w : box.h) - used) / (list.length - 1);
   let cursor = horiz ? box.x1 : box.y1;
   for (const n of list) {
-    if (horiz) { n.x = cursor; cursor += n.width + gap; }
-    else { n.y = cursor; cursor += n.height + gap; }
+    if (horiz) at.move(n, cursor - boxes.get(n).x1, 0);
+    else at.move(n, 0, cursor - boxes.get(n).y1);
+    cursor += size(n) + gap;
   }
 }
 
@@ -1753,34 +1828,41 @@ function distributeNodes(nodes, axis) {
 function tidyUp(nodes) {
   const list = nodes.filter((n) => "x" in n && !isLayoutManaged(n));
   if (list.length < 2) return;
-  const box = bounds(list);
-  const spanX = box.w, spanY = box.h;
-  const avgW = list.reduce((s, n) => s + n.width, 0) / list.length;
-  const avgH = list.reduce((s, n) => s + n.height, 0) / list.length;
-  const cols = Math.max(1, Math.round(spanX / Math.max(1, avgW)));
-  const rows = Math.max(1, Math.round(spanY / Math.max(1, avgH)));
+  const at = positioner(list);
+  const boxes = new Map(list.map((n) => [n, at.box(n)]));
+  const box = bounds(list, at.box);
+  const avgW = list.reduce((s, n) => s + boxes.get(n).w, 0) / list.length;
+  const avgH = list.reduce((s, n) => s + boxes.get(n).h, 0) / list.length;
+  const cols = Math.max(1, Math.round(box.w / Math.max(1, avgW)));
+  const rows = Math.max(1, Math.round(box.h / Math.max(1, avgH)));
 
   if (rows <= 1) { alignNodes(list, "centerV"); distributeEven(list, "h", 20); return; }
   if (cols <= 1) { alignNodes(list, "centerH"); distributeEven(list, "v", 20); return; }
 
-  list.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  list.sort((a, b) => (boxes.get(a).y1 - boxes.get(b).y1) || (boxes.get(a).x1 - boxes.get(b).x1));
   const perRow = Math.ceil(list.length / rows);
   let x = box.x1, y = box.y1, rowH = 0;
   list.forEach((n, i) => {
+    const b = boxes.get(n);
     if (i > 0 && i % perRow === 0) { y += rowH + 20; x = box.x1; rowH = 0; }
-    n.x = x; n.y = y;
-    x += n.width + 20;
-    rowH = Math.max(rowH, n.height);
+    at.move(n, x - b.x1, y - b.y1);
+    x += b.w + 20;
+    rowH = Math.max(rowH, b.h);
   });
 }
 
 function distributeEven(nodes, axis, gap) {
+  if (!nodes.length) return;
+  const at = positioner(nodes);
+  const boxes = new Map(nodes.map((n) => [n, at.box(n)]));
   const horiz = axis === "h";
-  const list = nodes.slice().sort((a, b) => (horiz ? a.x - b.x : a.y - b.y));
-  let cursor = horiz ? list[0].x : list[0].y;
+  const along = (n) => (horiz ? boxes.get(n).x1 : boxes.get(n).y1);
+  const list = nodes.slice().sort((a, b) => along(a) - along(b));
+  let cursor = along(list[0]);
   for (const n of list) {
-    if (horiz) { n.x = cursor; cursor += n.width + gap; }
-    else { n.y = cursor; cursor += n.height + gap; }
+    const b = boxes.get(n);
+    if (horiz) { at.move(n, cursor - b.x1, 0); cursor += b.w + gap; }
+    else { at.move(n, 0, cursor - b.y1); cursor += b.h + gap; }
   }
 }
 
