@@ -1376,11 +1376,11 @@ async function applyUpdate(node, key, value, index, extra) {
     case "arcRatio": node.arcData = Object.assign({}, node.arcData, { innerRadius: Math.max(0, Math.min(1, value / 100)) }); break;
 
     /* styles */
-    case "style.fill": await node.setFillStyleIdAsync(value); break;
-    case "style.stroke": await node.setStrokeStyleIdAsync(value); break;
-    case "style.text": await node.setTextStyleIdAsync(value); break;
-    case "style.effect": await node.setEffectStyleIdAsync(value); break;
-    case "style.grid": await node.setGridStyleIdAsync(value); break;
+    case "style.fill": await setStyle(node, "setFillStyleIdAsync", value, extra); break;
+    case "style.stroke": await setStyle(node, "setStrokeStyleIdAsync", value, extra); break;
+    case "style.text": await setStyle(node, "setTextStyleIdAsync", value, extra); break;
+    case "style.effect": await setStyle(node, "setEffectStyleIdAsync", value, extra); break;
+    case "style.grid": await setStyle(node, "setGridStyleIdAsync", value, extra); break;
 
     /* instance properties */
     case "instanceProp": {
@@ -2952,6 +2952,38 @@ async function pushLibraryVariables(opts) {
     savedAt: libStore.savedAt,
     truncated: false
   });
+}
+
+/*
+  A library style has to be in this file before it can be applied, and the id the
+  index remembers is a *local instance* of it — which Figma drops again once
+  nothing in the file uses it. Applying the remembered id then fails with
+
+      Line 7: Cannot set style successfully: Cannot find style
+
+  The key outlives all of that, so a library entry is imported by key and the
+  fresh id used. Same shape as `resolveVariableForBinding` — a library token has
+  always needed this; library styles turned out to need it too.
+*/
+async function setStyle(node, setter, id, libraryKey) {
+  if (libraryKey) {
+    const style = await safeAsync(() => figma.importStyleByKeyAsync(libraryKey), null);
+    if (style && style.id) { await node[setter](style.id); return; }
+  }
+  try {
+    await node[setter](id);
+  } catch (e) {
+    // The id was a local one and it has gone. Say which half of that is the
+    // problem, rather than passing on Figma's wording for it.
+    if (/find style/i.test(errText(e))) {
+      throw new Error("That style is not in this file any more — re-index to pick it up");
+    }
+    throw e;
+  }
+}
+
+async function safeAsync(fn, fallback) {
+  try { return await fn(); } catch (e) { return fallback; }
 }
 
 // A library variable has to be imported into the file before it can be bound.

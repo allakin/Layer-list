@@ -1509,7 +1509,7 @@ function field(opts) {
     same field is suppressed; typing again clears the guard, and a repaint builds
     a new field with a fresh one.
   */
-  var committed = null;
+  var committed = null, stepping = false;
   input.addEventListener("input", function () { committed = null; });
 
   function commit(raw) {
@@ -1544,8 +1544,22 @@ function field(opts) {
       if (o.min != null) nv = Math.max(o.min, nv);
       if (o.max != null) nv = Math.min(o.max, nv);
       input.value = fmt(nv, o.dp);
-      o.onChange(nv);
+      // Live, like a scrub: a key held down repeats every few tens of a second,
+      // and one committed edit per repeat is one undo step per repeat — and, for a
+      // field that *applies* rather than assigns, one application per repeat.
+      stepping = true;
+      o.onChange(nv, true);
     }
+  });
+  input.addEventListener("keyup", function (e) {
+    if (!stepping || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    stepping = false;
+    var v = evalExpr(input.value);
+    if (isNaN(v)) return;
+    // Where the run of presses landed, committed once. Marked as committed so the
+    // blur that follows does not send it a second time.
+    committed = input.value;
+    o.onChange(v, false);
   });
   input.addEventListener("blur", function () { commit(input.value); });
   input.addEventListener("focus", function () { input.select(); });
@@ -1790,6 +1804,14 @@ function pathName(name) {
 
 // Library styles can't be enumerated by the API, so the main thread harvests the
 // ones the document already consumes. They behave identically once applied.
+/*
+  A library style is applied by key, not by the id the index remembers: that id is
+  a local instance of it and Figma drops it once nothing uses it, after which
+  applying it fails with "Cannot find style". Local styles have no such problem and
+  are applied by id.
+*/
+function libKeyOf(s) { return s && s.remote && s.key ? s.key : null; }
+
 function styleGroups(kind) {
   var S = ST.styles;
   if (!S || S === "loading") return [];
@@ -2382,7 +2404,7 @@ function openColorPicker(anchor, ctx) {
           styles.slice(0, 200).forEach(function (s) {
             list.appendChild(h("div", {
               class: "tok-row" + (ctx.styleId === s.id ? " on" : ""), title: s.name,
-              onclick: function () { popClose(); upd("style." + ctx.prefix, s.id); }
+              onclick: function () { popClose(); upd("style." + ctx.prefix, s.id, null, libKeyOf(s)); }
             }, [
               h("span", { class: "sw sm" }, [h("i", { style: "background:" + (s.color || "var(--bg-3)") })]),
               pathName(s.name)
@@ -3281,11 +3303,17 @@ function renderInspector() {
   }
   if (popIsOpen()) { pendingRender = true; return; }
   var scroll = inspEl.scrollTop;
-  var focusKey = null, caret = null;
+  var focusKey = null, caret = null, typed = null;
   var ae = document.activeElement;
   if (ae && ae.tagName === "INPUT" && inspEl.contains(ae)) {
     var fld = ae.closest("[data-key]");
-    if (fld) { focusKey = fld.dataset.key; caret = ae.selectionStart; }
+    // The text as well as the focus. A rebuilt field is built from the last push,
+    // which lags what is being typed or stepped: holding shift+arrow sent an edit
+    // per keypress and each answer put the field back to a value two or three
+    // presses old, so the number bounced between the two. A focused field is the
+    // user's until they leave it — the same rule the colour picker's own fields
+    // follow.
+    if (fld) { focusKey = fld.dataset.key; caret = ae.selectionStart; typed = ae.value; }
   }
 
   inspEl.innerHTML = "";
@@ -3296,7 +3324,11 @@ function renderInspector() {
   inspEl.scrollTop = scroll;
   if (focusKey) {
     var back = inspEl.querySelector('[data-key="' + focusKey + '"] input');
-    if (back) { back.focus(); try { back.setSelectionRange(caret, caret); } catch (e) {} }
+    if (back) {
+      if (typed != null) back.value = typed;
+      back.focus();
+      try { back.setSelectionRange(caret, caret); } catch (e) {}
+    }
   }
 }
 
@@ -4121,7 +4153,7 @@ function openTextStylePicker(anchor) {
         any++;
         list.appendChild(h("div", {
           class: "tok-row" + (ST.P.textStyleId === s.id ? " on" : ""), title: s.name,
-          onclick: function () { popClose(); upd("style.text", s.id); }
+          onclick: function () { popClose(); upd("style.text", s.id, null, libKeyOf(s)); }
         }, [
           h("span", { html: I.style, style: "width:14px;color:" + (grp.remote ? "var(--brand)" : "var(--icon-2)") }),
           h("span", { class: "nm", text: s.name }),
@@ -4445,7 +4477,7 @@ function effectsSection() {
         items.push({ group: grp.label });
         grp.items.forEach(function (s) {
           items.push({ label: s.name, sub: s.desc, on: P.effectStyleId === s.id,
-            run: function () { upd("style.effect", s.id); } });
+            run: function () { upd("style.effect", s.id, null, libKeyOf(s)); } });
         });
       });
       if (!items.length) items = [{ label: "No effect styles found", disabled: true }];
@@ -5159,7 +5191,7 @@ function renderTokens() {
       items.slice(0, 400).forEach(function (s) {
         wrap.appendChild(h("div", {
           class: "tb-row", title: s.name,
-          onclick: function () { upd("style." + kind[2], s.id); }
+          onclick: function () { upd("style." + kind[2], s.id, null, libKeyOf(s)); }
         }, [
           kind[0] === "paint"
             ? h("span", { class: "sw sm" }, [h("i", { style: "background:" + (s.color || "var(--bg-3)") })])
@@ -5434,12 +5466,13 @@ function renderScale() {
     { label: "Width", control: field({
       icon: I.w, value: box.w, min: 0.01, scrub: false, dataKey: "scale-w",
       title: "Scale the selection to this width",
-      onChange: function (v) { apply(box.w > 0 ? v / box.w : 1); }
+      // Live steps only move the number; one scale is applied when the keys stop.
+      onChange: function (v, live) { if (!live) apply(box.w > 0 ? v / box.w : 1); }
     }) },
     { label: "Height", control: field({
       icon: I.hh, value: box.h, min: 0.01, scrub: false, dataKey: "scale-h",
       title: "Scale the selection to this height",
-      onChange: function (v) { apply(box.h > 0 ? v / box.h : 1); }
+      onChange: function (v, live) { if (!live) apply(box.h > 0 ? v / box.h : 1); }
     }) }
   ]));
 
@@ -5451,7 +5484,7 @@ function renderScale() {
       icon: I.scale, value: ST.scaleFactor, unit: "x", dp: 2, dataKey: "scale-x",
       min: 0.01, max: 100, scrub: false,
       title: "Multiply the selection by this",
-      onChange: function (v) { apply(v); },
+      onChange: function (v, live) { if (!live) apply(v); },
       tail: [iconBtn(I.chevD, {
         title: "Preset scales",
         onClick: function (e) {

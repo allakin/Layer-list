@@ -82,6 +82,15 @@ style preference.
    goes through `field()` rather than around it.
    → `tests/ui/scale-panel.js`
 
+   A held arrow key is a **live** step, committed once on `keyup`, exactly like a
+   scrub. One commit per repeat meant one undo step, one document write and one
+   `props` push per repeat — and each push rebuilt the field from a value two or
+   three presses old, so the number bounced and could not be brought to rest. The
+   other half of that: a field with the focus keeps its own text through a rebuild.
+   It belongs to whoever is typing in it until they leave it, which is the same
+   rule the colour picker's own fields follow.
+   → `tests/ui/arrow-stepping.js`
+
 6. **Library entries dedupe by `key`, not `id`.** A file accumulates several
    local ids for one library style or variable. Every picker also runs through
    `dedupeStyles` / `dedupeTokens` — and a picker's list is *one* list even when
@@ -91,6 +100,14 @@ style preference.
    straight back. When two entries are indistinguishable the library one wins:
    it is the half that keeps the link.
    → `tests/ui/no-duplicate-styles.js`
+
+   And a library entry is *applied* by key too, never by the id the index
+   remembers: that id is a local instance of the library's style, which Figma
+   drops once nothing in the file uses it — while the index outlives the session in
+   `clientStorage`. Applying the remembered id then fails with `Cannot set style
+   successfully: Cannot find style`. `setStyle()` imports by key first, the way
+   `resolveVariableForBinding()` always has for tokens.
+   → `tests/plugin/library-style-apply.js`
 
 7. **Never swallow a read failure silently.** Hardening `readProps` against dead
    nodes once turned every unreadable node into an empty panel with no clue why.
@@ -331,7 +348,7 @@ watch the window position have to outwait `POS_POLL_MS` plus the save debounce.
 npm test
 ```
 
-52 files: 2 integrity checks, 16 main-thread tests, 34 panel tests. All must pass.
+54 files: 2 integrity checks, 17 main-thread tests, 35 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that

@@ -4,7 +4,7 @@ A Figma plugin that reproduces the native **Layers** and **Design** panels, adds
 **Scale** panel, and lets you arrange the three however you like — so you can
 collapse Figma's own panels and work from the plugin window instead.
 
-![no screenshot yet](https://img.shields.io/badge/figma-plugin-black) ![tests](https://img.shields.io/badge/tests-52-green)
+![no screenshot yet](https://img.shields.io/badge/figma-plugin-black) ![tests](https://img.shields.io/badge/tests-54-green)
 
 ## Install
 
@@ -72,7 +72,7 @@ field, to fills and strokes, to effects and grids.
 
 ```sh
 npm install     # jsdom, for the tests
-npm test        # 52 files: integrity checks + behaviour
+npm test        # 54 files: integrity checks + behaviour
 ```
 
 ```sh

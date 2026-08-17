@@ -70,6 +70,9 @@ global.figma = {
   viewport: { zoom: 1, scrollAndZoomIntoView() {} },
   getNodeByIdAsync: async (id) => nodesById.get(id) || null,
   getStyleByIdAsync: async () => null,
+  // Overridden by the tests that care; by default a key resolves to nothing, the
+  // way an unpublished or renamed one does.
+  importStyleByKeyAsync: async () => { throw new Error("Unable to create style"); },
   variables: {
     getLocalVariableCollectionsAsync: async () => [],
     getVariableByIdAsync: async () => null,
