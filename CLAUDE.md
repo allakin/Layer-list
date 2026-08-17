@@ -12,10 +12,21 @@ native ones can be collapsed and the plugin used in their place.
 | `plugin/ui.html` | The entire panel — markup, CSS and script in one file. |
 | `tests/` | Integrity checks and behavioural tests. `npm test`. |
 
+The panel holds three panes — **Layers**, **Design** and **Scale** — each of which
+can be switched off, arranged as three columns, three rows, or Layers and Design
+sharing a line with Scale across the bottom. The arrangement, which panes are on,
+the size each divider was dragged to and the scale anchor all live in
+`clientStorage` with the window's own size and position.
+
 Everything the plugin ships is under `plugin/`; everything that supports it is
-under `tests/`. The four files left at the root have to be there: `package.json` and
-`package-lock.json` for npm, `.gitignore` for git, and this file so Claude Code
-loads it automatically.
+under `tests/`. What is left at the root is there because it has to be:
+`package.json` and `package-lock.json` for npm, `.gitignore` and `.gitattributes`
+for git, `README.md` and `LICENSE` for anyone arriving at the repository, and this
+file so Claude Code loads it automatically.
+
+The test count appears in three of them and goes stale silently: this file
+(*Before committing*), `README.md` (the badge **and** the `npm test` comment) and
+`.claude/skills/verify/SKILL.md`. Change the number in all three or in none.
 
 No build step, on purpose. Figma loads `plugin/code.js` and `plugin/ui.html`
 directly, so the files you edit are the files that ship. Do not introduce a bundler without a
@@ -29,8 +40,9 @@ after touching any message.
 
 - Panel → plugin: `send({ type })`, routed by the `switch` in `handleMessage`.
 - Property edits: `upd(key, value, index, extra, commit)` → `applyUpdate`.
-  A few keys (`align`, `distribute`, `tidy`, `replaceColor`) act on the selection
-  as a whole and are intercepted before the per-node loop.
+  A few keys (`align`, `distribute`, `tidy`, `replaceColor`, `scale`) act on the
+  selection as a whole and are intercepted before the per-node loop — and
+  `tests/checks/protocol.js` keeps its own list of them, so add new ones there too.
 - Plugin → panel: `figma.ui.postMessage({ type })`, handled in `onmessage`.
 
 ## Rules that came from real bugs
@@ -62,6 +74,14 @@ style preference.
    pass what you need through the options.
    → `tests/ui/padding-token-regression.js`
 
+   It also commits **once** per entry, and that took work: Enter commits and then
+   blurs, blur commits too, and restoring a rejected value is one more thing the
+   blur would commit as though it had been typed. Invisible for every value that
+   is *assigned* — an opacity of 50 set twice is still 50 — and wrong for one that
+   is *applied*: a Scale of 2x arrived twice and scaled by 4. Anything relative
+   goes through `field()` rather than around it.
+   → `tests/ui/scale-panel.js`
+
 6. **Library entries dedupe by `key`, not `id`.** A file accumulates several
    local ids for one library style or variable. Every picker also runs through
    `dedupeStyles` / `dedupeTokens` — and a picker's list is *one* list even when
@@ -76,6 +96,12 @@ style preference.
    nodes once turned every unreadable node into an empty panel with no clue why.
    Catch, keep going, but report — the panel has a copyable error bar for this.
    → `tests/plugin/unreadable-selection.js`
+
+   And report something *readable*: the sandbox throws strings and bare objects as
+   well as Errors, so `e.message` produced the toast `Frame 2087328884: undefined`,
+   which names neither the cause nor anywhere to look. Everything user-facing goes
+   through `errText()`.
+   → `tests/plugin/style-backed-paint.js`
 
 8. **`componentProperties` is unordered.** Take the order from the main
    component's `componentPropertyDefinitions`; fall back to the id in the
@@ -138,6 +164,42 @@ style preference.
     same point, or the window moves itself in every file at a different zoom.
     → `tests/plugin/window-placement.js`
 
+16. **The arrangement is one DOM in three shapes.** `#row-top` is
+    `display: contents` unless the layout wants Layers and Design on one line, so
+    nothing is moved between arrangements — but `display: contents` takes the
+    wrapper out of the *layout*, never out of the *DOM*, so a selector still has
+    to reach the panes through it (`#main.rows #layers-pane`, not `>`). Which pane
+    takes the slack cannot be CSS alone, because it depends on what is switched
+    on: `applyLayout()` writes that, the divider axes and the visibility, and it
+    is the only place that does. A divider sizes the pane *after* it, on whichever
+    axis the arrangement puts it, and each arrangement keeps its own sizes — a
+    width in one is a height in another.
+    → `tests/ui/panel-layout.js`
+
+17. **Scaling is `rescale()`, and nothing else scales.** `resize()` changes the
+    box; `rescale()` is the Scale tool — strokes, corner radii and font sizes go
+    with the geometry. It takes one uniform factor of at least 0.01 and holds the
+    node's **origin** still, which is the translation in its absolute transform,
+    not the corner of its bounding box. Any other anchor is a move afterwards, and
+    `x`/`y` are measured inside the parent, so an absolute move has to be
+    converted through the inverse of the parent's transform first. Skip a layer
+    whose parent is auto layout (it does not own its position) and a layer inside
+    another selected layer (it is already being scaled by it). No control on that
+    panel may scrub: every commit changes the size the next one is measured
+    against, so a live drag compounds. The multiplier shows the factor last
+    applied and stays there — snapping back to `1x` read as the panel having
+    ignored the number that was just typed.
+    → `tests/plugin/scale-selection.js`, `tests/ui/scale-panel.js`
+
+18. **A paint style is a link, and the paint array is what it links to.** Writing
+    `fills` while `fillStyleId` holds throws, and under `dynamic-page` that id is
+    read-only — the only way to let go is `setFillStyleIdAsync("")`. So every key
+    named `fill.*` or `stroke.*` (the dot is what tells them apart from
+    `strokeWeight` and friends, and from `style.fill`) detaches first, and says so
+    once the edit is committed rather than on every frame of a drag. Cutting a
+    layer loose from the design system is not something to do quietly.
+    → `tests/plugin/style-backed-paint.js`
+
 ## What the API cannot do
 
 Do not spend time trying to work around these; say so in the UI instead.
@@ -163,6 +225,25 @@ Do not spend time trying to work around these; say so in the UI instead.
 - Nothing opens another file, so "Go to main component" can only report that the
   component is in a library.
 - No canvas hover events, no docking, no eyedropper, no library file name.
+
+### When the plugin will not open at all
+
+Read the stack before reading the code. An error whose frames are all in
+`figma_app-*.min.js` / `vendor-core-*.min.js`, with a failed request for
+`static.figma.com/…/jsvm-cpp.js.br` above it, is Figma failing to download its own
+plugin VM:
+
+```
+Failed to load resource: net::ERR_TIMED_OUT   static.figma.com/…/jsvm-cpp.js.br
+ec: An error occurred while loading the plugin environment
+```
+
+`code.js` never ran — that VM is what would have run it. Nothing in this repo can
+cause or fix it: reload, then look at VPN, proxy, content blockers and DNS, and
+check whether any other plugin opens. Ours would name its own file and line
+instead. What is on us is that opening the panel never waits on a request of its
+own, and that the window is asked for before the first `await` — both pinned.
+→ `tests/checks/protocol.js`, `tests/plugin/window-placement.js`
 
 ## Keeping the editor responsive
 
@@ -236,7 +317,7 @@ watch the window position have to outwait `POS_POLL_MS` plus the save debounce.
 npm test
 ```
 
-47 files: 2 integrity checks, 13 main-thread tests, 32 panel tests. All must pass.
+51 files: 2 integrity checks, 15 main-thread tests, 34 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that

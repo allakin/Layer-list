@@ -43,6 +43,17 @@ require(CODE);
 const calls = () => P.uiLog.map((c) => c.call).join(" -> ");
 const find = (name) => P.uiLog.filter((c) => c.call === name);
 
+/*
+ * Synchronously, before the first await: the window has to be asked for while the
+ * plugin is still loading, not after something that can stall. Figma failing to
+ * fetch its own plugin VM is not something a plugin can do anything about — the
+ * stack for that sits entirely in figma_app-*.min.js — but a plugin that waits on
+ * storage before calling showUI() adds a second way for the window never to turn
+ * up, and that one would be ours.
+ */
+P.expect("the window is asked for during load, before anything is awaited",
+  P.uiLog.length === 1 && P.uiLog[0].call === "showUI");
+
 (async () => {
   await wait(60);
   console.log("window calls:", calls());

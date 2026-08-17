@@ -133,17 +133,70 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
 #topbar .sp { flex: 1; }
 #sel-badge { color: var(--text-2); padding: 0 6px; white-space: nowrap; }
 
-/* ---- main split --------------------------------------------------------- */
-#main { flex: 1 1 auto; display: flex; min-height: 0; }
+/* ---- panes and the dividers between them -------------------------------- */
+/* Which way #main runs is the whole of the arrangement: `cols` puts the three
+   side by side, `rows` stacks them, `mixed` stacks a two-up row above a
+   full-width pane. `display: contents` is what lets that row stop being a box in
+   the first two, so nothing has to be moved in the DOM to change layout. */
+#main { flex: 1 1 auto; display: flex; min-height: 0; min-width: 0; }
+#main.cols { flex-direction: row; }
+#main.rows, #main.mixed { flex-direction: column; }
+#row-top { display: contents; }
+#main.mixed > #row-top {
+  display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; min-width: 0;
+}
+
 /* Zero basis, not `auto`: rows are as wide as their content, so with an `auto`
    basis one very long name — or one deep branch — made this pane's ideal width
    thousands of pixels and the inspector, which may shrink, collapsed to nothing.
    The tree scrolls sideways inside the pane instead. */
 #layers-pane { flex: 1 1 0; min-width: 100px; display: flex; flex-direction: column; min-height: 0; }
-#hsplit { flex: 0 0 auto; width: 1px; background: var(--border); cursor: col-resize; position: relative; }
-#hsplit::after { content: ""; position: absolute; inset: 0 -3px; }
-#hsplit:hover { background: var(--brand); }
 #inspector { flex: 0 1 264px; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+#scale-pane { flex: 0 1 150px; min-width: 0; min-height: 0; overflow: auto; }
+/* Descendant, not child: `display: contents` takes #row-top out of the layout,
+   never out of the DOM, so the panes are still its children as far as a selector
+   is concerned. Stacked, a pane is as wide as the window and what is negotiable
+   is its height — so the tree keeps a floor of its own. */
+#main.rows #layers-pane { min-width: 0; min-height: 80px; }
+
+.psplit { flex: 0 0 auto; background: var(--border); position: relative; }
+.psplit::after { content: ""; position: absolute; }
+.psplit:hover { background: var(--brand); }
+/* A divider is only as wide as a hairline, so the grab area is stretched around
+   it rather than the line being drawn thick. */
+.psplit.x { width: 1px; cursor: col-resize; }
+.psplit.x::after { inset: 0 -3px; }
+.psplit.y { height: 1px; cursor: row-resize; }
+.psplit.y::after { inset: -3px 0; }
+
+#no-panes {
+  flex: 1 1 auto; display: none; flex-direction: column; align-items: center;
+  justify-content: center; gap: 8px; color: var(--text-3);
+}
+#main.empty > #no-panes { display: flex; }
+
+/* ---- scale pane --------------------------------------------------------- */
+/* The anchor is the one control here that is a picture rather than a number:
+   nine points of the selection's box, the chosen one filled in. */
+.anchor {
+  display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
+  gap: 2px; background: var(--bg-2); border-radius: 6px; padding: 4px;
+  width: 100%; height: 62px; box-sizing: border-box;
+}
+.anchor button {
+  border: none; background: none; padding: 0; border-radius: 3px; cursor: default;
+  display: flex; align-items: center; justify-content: center;
+}
+.anchor button:hover { background: var(--bg-hover); }
+.anchor button i { width: 4px; height: 4px; border-radius: 50%; background: var(--text-3); }
+.anchor button.on i { width: 10px; height: 10px; border-radius: 3px; background: var(--brand); }
+.scale-hint { color: var(--text-3); padding: 2px 0 0; }
+/* The pane is a column of its own in two of the three arrangements and can be
+   dragged narrow, so its section may not insist on the inspector's 224px; below
+   NARROW_AT the two fields stack rather than being clipped. And there is nothing
+   under this section to be divided from. */
+#scale-pane .sec { min-width: 0; border-bottom: none; }
+#scale-pane.narrow .pair { flex-direction: column; }
 
 /* ---- layers toolbar ----------------------------------------------------- */
 #layers-toolbar {
@@ -718,29 +771,44 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
       <button id="page-btn"><span class="ic"></span><span class="nm">Page 1</span><span class="cv"></span></button>
       <span class="sp"></span>
       <span id="sel-badge"></span>
+      <button class="ib" id="btn-panels" title="Panels &amp; arrangement"></button>
       <button class="ib" id="btn-theme" title="Theme"></button>
       <button class="ib" id="btn-refresh" title="Reload document state"></button>
     </div>
 
-    <div id="main">
-      <div id="layers-pane">
-        <div id="layers-toolbar">
-          <label class="searchbox">
-            <span class="mi-ic"></span>
-            <input id="search" type="text" placeholder="Find layers…" spellcheck="false" />
-            <button class="ib" id="search-rename" title="Rename the layers found" style="display:none"></button>
-            <button class="ib" id="search-clear" style="display:none"></button>
-          </label>
-          <button class="ib" id="btn-collapse" title="Collapse all layers"></button>
+    <!-- Three panes, three arrangements. #row-top is `display: contents` unless
+         the layout wants Layers and Design sharing one line, so the same markup
+         is a row, a column, or a row with a full-width pane underneath. -->
+    <div id="main" class="mixed">
+      <div id="row-top">
+        <div id="layers-pane">
+          <div id="layers-toolbar">
+            <label class="searchbox">
+              <span class="mi-ic"></span>
+              <input id="search" type="text" placeholder="Find layers…" spellcheck="false" />
+              <button class="ib" id="search-rename" title="Rename the layers found" style="display:none"></button>
+              <button class="ib" id="search-clear" style="display:none"></button>
+            </label>
+            <button class="ib" id="btn-collapse" title="Collapse all layers"></button>
+          </div>
+          <div id="tree" tabindex="0"></div>
         </div>
-        <div id="tree" tabindex="0"></div>
+
+        <div id="hsplit" class="psplit"></div>
+
+        <div id="inspector">
+          <div id="tabs"></div>
+          <div id="insp-body"></div>
+        </div>
       </div>
 
-      <div id="hsplit"></div>
+      <div id="vsplit" class="psplit"></div>
 
-      <div id="inspector">
-        <div id="tabs"></div>
-        <div id="insp-body"></div>
+      <div id="scale-pane"></div>
+
+      <div id="no-panes">
+        <div>Every panel is switched off.</div>
+        <button class="ib" id="no-panes-btn" style="width:auto;padding:0 8px">Choose panels</button>
       </div>
     </div>
   </div>
@@ -1071,6 +1139,13 @@ var I = {
   tidy: ic('<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/>'),
   flipH: ic('<path d="M8 1.5v13" stroke-dasharray="2 1.6"/><path d="M6.2 5v6L3 8Z" fill="currentColor" stroke="none"/><path d="M9.8 5v6L13 8Z" fill="currentColor" stroke="none"/>'),
   flipV: ic('<path d="M1.5 8h13" stroke-dasharray="2 1.6"/><path d="M5 6.2h6L8 3Z" fill="currentColor" stroke="none"/><path d="M5 9.8h6L8 13Z" fill="currentColor" stroke="none"/>'),
+  // The three arrangements, drawn as what they do to the panel.
+  layoutCols: ic('<rect x="1.5" y="2.5" width="4" height="11" rx="1"/><rect x="6.5" y="2.5" width="3" height="11" rx="1"/><rect x="10.5" y="2.5" width="4" height="11" rx="1"/>'),
+  layoutRows: ic('<rect x="2.5" y="1.5" width="11" height="4" rx="1"/><rect x="2.5" y="6.5" width="11" height="3" rx="1"/><rect x="2.5" y="10.5" width="11" height="4" rx="1"/>'),
+  layoutMixed: ic('<rect x="2.5" y="2.5" width="5" height="6" rx="1"/><rect x="8.5" y="2.5" width="5" height="6" rx="1"/><rect x="2.5" y="9.5" width="11" height="4" rx="1"/>'),
+  panels: ic('<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M9.5 2.5v11"/>'),
+  // Scale: a box growing by the corner, the way the Scale tool reads.
+  scale: ic('<rect x="1.5" y="1.5" width="7" height="7" rx="1"/><path d="M11 6.5h3.5V10M14.5 6.5 10 11"/><path d="M6.5 11H10v3.5"/>'),
   // Gradient ramp controls: the two ends changing places, and a quarter turn.
   gradSwap: ic('<path d="M2.5 5.5h11M11 3l2.5 2.5L11 8"/><path d="M13.5 11.5h-11M5 9l-2.5 2.5L5 14"/>'),
   gradRotate: ic('<rect x="3.5" y="6.5" width="6" height="6" rx="1"/><path d="M6.5 3.5h4a2 2 0 0 1 2 2v4"/><path d="M11 8l1.5 2L14 8"/>'),
@@ -1211,6 +1286,19 @@ var ST = {
   inspected: 0,
   types: [],
   colors: null,
+  bbox: null,          // the selection's size, for the Scale pane
+
+  // Arrangement. All of this comes back from clientStorage on open, so it is
+  // seeded with the same defaults the main thread holds.
+  layout: "mixed",     // cols | rows | mixed
+  panes: { layers: true, design: true, scale: true },
+  splits: {
+    cols: { insp: 264, scale: 240 },
+    rows: { insp: 300, scale: 150 },
+    mixed: { insp: 264, scale: 150 }
+  },
+  anchor: "cc",        // which point of the selection scaling holds still
+  scaleFactor: 1,      // the multiplier the Scale pane is showing, this session
 
   tab: "design",
   fonts: null,
@@ -1413,12 +1501,32 @@ function field(opts) {
   }, [(o.icon || o.iconText) ? key : null, input, o.unit ? h("span", { class: "unit", text: o.unit }) : null,
       (o.tail && o.tail.length) ? tail : null]);
 
+  /*
+    Enter commits and then blurs, and blur commits as well, so one Enter used to
+    be two edits. Invisible for a value that is assigned — setting an opacity to
+    50 twice is still 50 — and wrong for one that is applied: a Scale of 2x
+    arrived twice and scaled by 4. Only a repeat of the very same text within the
+    same field is suppressed; typing again clears the guard, and a repaint builds
+    a new field with a fresh one.
+  */
+  var committed = null;
+  input.addEventListener("input", function () { committed = null; });
+
   function commit(raw) {
+    if (raw === committed) return;
+    committed = raw;
     if (o.text != null) { if (raw !== o.text) o.onChange(raw); return; }
     var s = String(raw).trim();
     if (s === "" || s.toLowerCase() === "mixed") { render(); return; }
     var v = evalExpr(s);
-    if (isNaN(v)) { input.value = isMixed ? "" : fmt(o.value, o.dp); return; }
+    if (isNaN(v)) {
+      // Putting the old value back is itself something the blur would commit, as
+      // if the user had typed it: an applied value would arrive from a rejected
+      // one. It counts as committed already.
+      input.value = isMixed ? "" : fmt(o.value, o.dp);
+      committed = input.value;
+      return;
+    }
     if (o.min != null) v = Math.max(o.min, v);
     if (o.max != null) v = Math.min(o.max, v);
     o.onChange(v);
@@ -3160,7 +3268,7 @@ function renderTabs() {
 
 /* ---- render entry ------------------------------------------------------- */
 
-function render() { renderTree(); renderInspector(); }
+function render() { renderTree(); renderInspector(); renderScale(); }
 
 function renderInspector() {
   // Rendering is deferred while a popover is open so the document changing
@@ -5168,6 +5276,7 @@ onmessage = function (event) {
       ST.inspected = msg.inspected || 0;
       ST.types = msg.types || [];
       ST.colors = msg.colors;
+      ST.bbox = msg.bbox || null;
       $("sel-badge").textContent = ST.count === 0 ? ""
         : (ST.count === 1 ? pretty(ST.P ? ST.P.type : "") : ST.count + " selected");
       // Text nodes need the font list for the weight dropdown.
@@ -5177,6 +5286,7 @@ onmessage = function (event) {
         send({ type: "getModeCollections" });
       }
       renderInspector();
+      renderScale();
       break;
 
     case "fonts":
@@ -5216,6 +5326,16 @@ onmessage = function (event) {
 
     case "prefs":
       if (msg.theme) applyTheme(msg.theme);
+      // The arrangement the user left behind. Merged, not replaced: a stored
+      // object from an older version knows nothing about panes that came later.
+      if (msg.layout && LAYOUTS.some(function (l) { return l.v === msg.layout; })) {
+        ST.layout = msg.layout;
+      }
+      if (msg.panes) ST.panes = Object.assign({}, ST.panes, msg.panes);
+      if (msg.splits) ST.splits = Object.assign({}, ST.splits, msg.splits);
+      if (msg.anchor) ST.anchor = msg.anchor;
+      applyLayout();
+      renderScale();
       break;
 
     case "libStatus":
@@ -5264,28 +5384,274 @@ function downloadFiles(files) {
 }
 
 /* =============================================================================
-   Panel chrome: column splitter + window resize
+   Scale pane — the Scale tool, by the numbers
+
+   rescale() takes one uniform factor, so every control here is a way of naming
+   that factor: a target width, a target height, or the multiplier itself. None
+   of them scrub, because each commit changes the size the next one is measured
+   against — a live drag would compound instead of scaling once.
    ========================================================================== */
 
-(function () {
-  var split = $("hsplit"), insp = $("inspector");
-  split.addEventListener("pointerdown", function (e) {
+var SCALE_PRESETS = [0.25, 0.5, 0.75, 1, 2, 3, 4, 5, 10];
+var ANCHORS = ["tl", "tc", "tr", "cl", "cc", "cr", "bl", "bc", "br"];
+var ANCHOR_TITLES = {
+  tl: "Top left", tc: "Top centre", tr: "Top right",
+  cl: "Left", cc: "Centre", cr: "Right",
+  bl: "Bottom left", bc: "Bottom centre", br: "Bottom right"
+};
+
+function renderScale() {
+  var pane = $("scale-pane");
+  if (!ST.panes.scale) { pane.innerHTML = ""; return; }
+  pane.innerHTML = "";
+
+  var sec = section("Scale", {
+    actions: [iconBtn(I.close, {
+      title: "Hide the Scale panel",
+      onClick: function () { setPaneOn("scale", false); }
+    })]
+  });
+  pane.appendChild(sec.wrap);
+
+  var box = ST.bbox;
+  if (!ST.count || !box) {
+    sec.body.appendChild(h("div", { class: "empty-line", text: "Select a layer to scale" }));
+    return;
+  }
+
+  // The field keeps showing what was asked for. It is not "the size the layer is
+  // at" — it is the factor last applied, so it stays put rather than snapping
+  // back, which read as the panel ignoring the number that had just been typed.
+  // The value it shows comes back through the props push that every edit ends in.
+  function apply(factor) {
+    if (!isFinite(factor) || factor <= 0) { renderScale(); return; }
+    ST.scaleFactor = factor;
+    if (factor === 1) { renderScale(); return; }   // nothing to do, nothing to wait for
+    upd("scale", { factor: factor, anchor: ST.anchor });
+  }
+
+  sec.body.appendChild(pairGrid([
+    { label: "Width", control: field({
+      icon: I.w, value: box.w, min: 0.01, scrub: false, dataKey: "scale-w",
+      title: "Scale the selection to this width",
+      onChange: function (v) { apply(box.w > 0 ? v / box.w : 1); }
+    }) },
+    { label: "Height", control: field({
+      icon: I.hh, value: box.h, min: 0.01, scrub: false, dataKey: "scale-h",
+      title: "Scale the selection to this height",
+      onChange: function (v) { apply(box.h > 0 ? v / box.h : 1); }
+    }) }
+  ]));
+
+  sec.body.appendChild(pairGrid([
+    // A plain number with an "x" after it, so what is typed and what is picked
+    // from the list are the same thing and both stay on screen. Not scrubbable,
+    // for the same reason the sizes are not.
+    { label: "Scale", control: field({
+      icon: I.scale, value: ST.scaleFactor, unit: "x", dp: 2, dataKey: "scale-x",
+      min: 0.01, max: 100, scrub: false,
+      title: "Multiply the selection by this",
+      onChange: function (v) { apply(v); },
+      tail: [iconBtn(I.chevD, {
+        title: "Preset scales",
+        onClick: function (e) {
+          var at = e.currentTarget;      // null by the time a menu item runs
+          menu(at, SCALE_PRESETS.map(function (f) {
+            return { label: f + "x", on: f === ST.scaleFactor, run: function () { apply(f); } };
+          }), { width: 120 });
+        }
+      })]
+    }) },
+    { label: "Anchor point", control: anchorGrid() }
+  ]));
+
+  sec.body.appendChild(h("div", {
+    class: "scale-hint",
+    text: ST.count > 1
+      ? "The selection scales as one thing, the gaps in it included."
+      : "Strokes, corner radii and text scale with the layer."
+  }));
+}
+
+function anchorGrid() {
+  var grid = h("div", { class: "anchor" });
+  ANCHORS.forEach(function (a) {
+    grid.appendChild(h("button", {
+      class: ST.anchor === a ? "on" : "",
+      title: ANCHOR_TITLES[a] + " stays where it is",
+      data: { anchor: a },
+      onclick: function () {
+        ST.anchor = a;
+        renderScale();
+        send({ type: "setPref", anchor: a });
+      }
+    }, [h("i")]));
+  });
+  return grid;
+}
+
+/* =============================================================================
+   Arrangement: which panes are shown, how they are laid out, and the dividers
+   ========================================================================== */
+
+var LAYOUTS = [
+  { v: "cols", icon: I.layoutCols, title: "Three columns" },
+  { v: "rows", icon: I.layoutRows, title: "Three rows" },
+  { v: "mixed", icon: I.layoutMixed, title: "Layers and Design side by side, Scale below" }
+];
+var PANES = [
+  { k: "layers", label: "Layers panel" },
+  { k: "design", label: "Design panel" },
+  { k: "scale", label: "Scale panel" }
+];
+// A pane that cannot be dragged smaller than this stays grabbable.
+var PANE_MIN = 60;
+
+/*
+  Both dividers size the pane that follows them, so dragging one always means
+  "give the pane on the far side this much". Which axis that is depends on the
+  arrangement, not on the divider: stacked, the same divider between Layers and
+  Design sets a height.
+*/
+function splitAxis(which) {
+  if (ST.layout === "cols") return "x";
+  if (ST.layout === "rows") return "y";
+  return which === "hsplit" ? "x" : "y";   // mixed: two up, one across the bottom
+}
+function splitKey(which) { return which === "hsplit" ? "insp" : "scale"; }
+function sizes() { return ST.splits[ST.layout] || ST.splits.mixed; }
+
+/*
+  Panes are laid out from here rather than from CSS alone, because which one takes
+  the slack depends on what is switched on: with Layers off, Design has to grow
+  into its place instead of sitting at the width it was dragged to.
+*/
+function applyLayout() {
+  var main = $("main");
+  var on = ST.panes;
+  var any = on.layers || on.design || on.scale;
+  main.className = ST.layout + (any ? "" : " empty");
+
+  var layers = $("layers-pane"), insp = $("inspector"), scale = $("scale-pane");
+  layers.style.display = on.layers ? "" : "none";
+  insp.style.display = on.design ? "" : "none";
+  scale.style.display = on.scale ? "" : "none";
+
+  // A divider with nothing on one side of it is just a line in the way.
+  var hs = $("hsplit"), vs = $("vsplit");
+  hs.style.display = (on.layers && on.design) ? "" : "none";
+  vs.style.display = (on.scale && (on.layers || on.design)) ? "" : "none";
+  hs.className = "psplit " + splitAxis("hsplit");
+  vs.className = "psplit " + splitAxis("vsplit");
+
+  // In the two-up arrangement the wrapper is a real box, so with both of its
+  // panes off it would still hold a row's worth of space open.
+  $("row-top").style.display =
+    (ST.layout === "mixed" && !on.layers && !on.design) ? "none" : "";
+
+  // Whichever pane comes first among those still switched on takes the slack;
+  // the others keep the size their divider was dragged to.
+  var s = sizes();
+  var grow = on.layers ? layers : (on.design ? insp : scale);
+  layers.style.flex = layers === grow ? "1 1 0" : "";
+  insp.style.flex = insp === grow ? "1 1 0" : "0 1 " + Math.round(s.insp) + "px";
+  scale.style.flex = scale === grow ? "1 1 0" : "0 1 " + Math.round(s.scale) + "px";
+
+  syncNarrow();
+}
+
+function wireSplit(which) {
+  var el = $(which);
+  el.addEventListener("pointerdown", function (e) {
     e.preventDefault();
-    split.setPointerCapture(e.pointerId);
-    var startX = e.clientX, startW = insp.offsetWidth;
+    // The divider keeps the capture: it is never rebuilt, and applyLayout only
+    // rewrites its class.
+    el.setPointerCapture(e.pointerId);
+    var axis = splitAxis(which);
+    var pane = which === "hsplit" ? $("inspector") : $("scale-pane");
+    var start = axis === "x" ? e.clientX : e.clientY;
+    var startSize = axis === "x" ? pane.offsetWidth : pane.offsetHeight;
+    var room = (axis === "x" ? window.innerWidth : window.innerHeight) - PANE_MIN;
     function mv(ev) {
-      var w = Math.max(120, Math.min(window.innerWidth - 120, startW - (ev.clientX - startX)));
-      insp.style.flex = "0 1 " + Math.round(w) + "px";
+      var moved = (axis === "x" ? ev.clientX : ev.clientY) - start;
+      var size = Math.max(PANE_MIN, Math.min(room, startSize - moved));
+      sizes()[splitKey(which)] = Math.round(size);
+      pane.style.flex = "0 1 " + Math.round(size) + "px";
+      syncNarrow();
     }
     function up() {
-      split.releasePointerCapture(e.pointerId);
-      split.removeEventListener("pointermove", mv);
-      split.removeEventListener("pointerup", up);
+      el.releasePointerCapture(e.pointerId);
+      el.removeEventListener("pointermove", mv);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      // One message when the drag ends, not one per pointer move.
+      send({ type: "setPref", splits: ST.splits });
     }
-    split.addEventListener("pointermove", mv);
-    split.addEventListener("pointerup", up);
+    el.addEventListener("pointermove", mv);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
   });
-})();
+}
+wireSplit("hsplit");
+wireSplit("vsplit");
+
+function setLayout(v) {
+  ST.layout = v;
+  applyLayout();
+  send({ type: "setPref", layout: v });
+}
+function setPaneOn(k, on) {
+  ST.panes[k] = !!on;
+  applyLayout();
+  // Both ways: switched on it has a selection to catch up with, switched off it
+  // should not sit there holding a stale copy of one.
+  if (k === "scale") renderScale();
+  send({ type: "setPref", panes: ST.panes });
+}
+
+// Stays open while panels are switched on and off: three of them, and closing
+// after each would mean opening this three times.
+function openPanelsMenu(anchor) {
+  var body = h("div", { class: "pop-body" });
+  body.appendChild(h("div", { class: "mgroup", text: "Arrangement" }));
+  var segWrap = h("div", { style: "padding:0 4px 4px" });
+  function paintSeg() {
+    segWrap.innerHTML = "";
+    segWrap.appendChild(seg(LAYOUTS, ST.layout, function (v) {
+      setLayout(v);
+      paintSeg();
+    }));
+  }
+  paintSeg();
+  body.appendChild(segWrap);
+  body.appendChild(h("div", { class: "msep" }));
+  body.appendChild(h("div", { class: "mgroup", text: "Panels" }));
+  PANES.forEach(function (p) {
+    var row = h("div", { class: "mi" }, [
+      h("span", { class: "tick" }),
+      h("span", { class: "t", text: p.label })
+    ]);
+    function paintRow() {
+      row.querySelector(".tick").innerHTML = ST.panes[p.k] ? I.tick : "";
+    }
+    row.addEventListener("click", function () {
+      var others = PANES.filter(function (o) { return o.k !== p.k; })
+        .some(function (o) { return ST.panes[o.k]; });
+      // Switching off the last one leaves an empty window with no way back
+      // except this menu, so it is allowed — but say what happened.
+      setPaneOn(p.k, !ST.panes[p.k]);
+      paintRow();
+      if (!ST.panes[p.k] && !others) send({ type: "notify", message: "Every panel is switched off" });
+    });
+    paintRow();
+    body.appendChild(row);
+  });
+  return popOpen(anchor, body, { width: 210, align: "right" });
+}
+
+$("btn-panels").innerHTML = I.panels;
+$("btn-panels").addEventListener("click", function (e) { openPanelsMenu(e.currentTarget); });
+$("no-panes-btn").addEventListener("click", function () { openPanelsMenu($("btn-panels")); });
 
 (function () {
   var rz = $("resizer");
@@ -5322,15 +5688,19 @@ document.addEventListener("pointerdown", function (e) {
 
 var NARROW_AT = 232;
 
+// Both panes that hold paired controls: either can be a column the user has
+// dragged narrow, or a full-width row, depending on the arrangement.
 function syncNarrow() {
-  var insp = $("inspector");
-  var narrow = insp.clientWidth > 0 && insp.clientWidth < NARROW_AT;
-  insp.classList.toggle("narrow", narrow);
+  [$("inspector"), $("scale-pane")].forEach(function (el) {
+    el.classList.toggle("narrow", el.clientWidth > 0 && el.clientWidth < NARROW_AT);
+  });
 }
 
 (function () {
   if (typeof ResizeObserver === "function") {
-    new ResizeObserver(syncNarrow).observe($("inspector"));
+    var ro = new ResizeObserver(syncNarrow);
+    ro.observe($("inspector"));
+    ro.observe($("scale-pane"));
   }
   window.addEventListener("resize", syncNarrow);
   syncNarrow();
@@ -5340,8 +5710,10 @@ function syncNarrow() {
    Boot
    ========================================================================== */
 
+applyLayout();
 renderTabs();
 renderInspector();
+renderScale();
 bootStep("Reading the page structure…");
 send({ type: "ready" });
 ensureVariables();

@@ -148,16 +148,48 @@ function saveLater(key, value) {
   });
 }
 
-/* ---- panel preferences (theme) ------------------------------------------- */
+/* ---- panel preferences --------------------------------------------------- */
 
-let prefs = { theme: "dark" };
+/*
+  How the panel is arranged is the user's, like the window it sits in, so it
+  keeps the same company in clientStorage: the layout, which of the three panels
+  are switched on, the size the user dragged each divider to (per layout — a
+  width in one arrangement is a height in another) and the scale anchor.
+
+  Merged over the defaults rather than replacing them, so a stored object written
+  by an older version does not leave the new keys undefined.
+*/
+const PREFS_DEFAULT = {
+  theme: "dark",
+  layout: "mixed",
+  panes: { layers: true, design: true, scale: true },
+  splits: {
+    cols: { insp: 264, scale: 240 },
+    rows: { insp: 300, scale: 150 },
+    mixed: { insp: 264, scale: 150 }
+  },
+  anchor: "cc"
+};
+
+let prefs = clone(PREFS_DEFAULT);
 
 async function loadPrefs() {
   try {
     const saved = await figma.clientStorage.getAsync("ui-prefs");
-    if (saved && saved.theme) prefs = saved;
+    if (saved) {
+      prefs = Object.assign(clone(PREFS_DEFAULT), saved);
+      prefs.panes = Object.assign(clone(PREFS_DEFAULT.panes), saved.panes);
+      prefs.splits = Object.assign(clone(PREFS_DEFAULT.splits), saved.splits);
+    }
   } catch (e) { /* storage unavailable; defaults stand */ }
-  figma.ui.postMessage({ type: "prefs", theme: prefs.theme });
+  figma.ui.postMessage({
+    type: "prefs",
+    theme: prefs.theme,
+    layout: prefs.layout,
+    panes: prefs.panes,
+    splits: prefs.splits,
+    anchor: prefs.anchor
+  });
 }
 
 /* ---- panel state --------------------------------------------------------- */
@@ -935,7 +967,7 @@ async function pushSelection() {
       const where = safe(() => firstError.node.type + " “" + firstError.node.name + "”", "the selection");
       figma.ui.postMessage({
         type: "error",
-        message: "Could not read " + where + ": " + (firstError.error.message || firstError.error),
+        message: "Could not read " + where + ": " + errText(firstError.error),
         stack: firstError.error.stack || null
       });
       figma.notify("Could not read the selected layer", { error: true });
@@ -986,7 +1018,8 @@ async function pushSelection() {
     inspected: read.length,   // what was actually readable, not what was tried
     ids: sel.map((n) => n.id),
     types: [...new Set(sel.map((n) => n.type))],
-    colors: sel.length > 1 ? selectionColors(slice) : null
+    colors: sel.length > 1 ? selectionColors(slice) : null,
+    bbox: selectionBox(slice)
   });
 }
 
@@ -1085,6 +1118,48 @@ async function loadNodeFonts(node) {
 
 async function selectedNodes() {
   return figma.currentPage.selection.slice(0, MAX_INSPECT);
+}
+
+/*
+  The sandbox does not only throw Errors. Something thrown without a `message` —
+  a plain string, or an object — turned every report into the node's name followed
+  by the word "undefined", which says nothing at all and cannot be looked up.
+  Everything user-facing goes through here.
+*/
+function errText(e) {
+  if (e == null) return "unknown error";
+  if (typeof e === "string") return e;
+  const m = safe(() => e.message, null);
+  if (m) return String(m);
+  const s = safe(() => String(e), "");
+  return s && s !== "[object Object]" ? s : "unknown error";
+}
+
+/*
+  Every key that writes the paint array itself is named "fill.x" or "stroke.x".
+  The ones that only touch a stroke's geometry (`strokeWeight`, `strokeCap`, …)
+  have no dot in them, and applying a style is `style.fill` — so neither is caught
+  by this, which is the point.
+*/
+function paintProp(key) {
+  if (String(key).indexOf("fill.") === 0) return "fills";
+  if (String(key).indexOf("stroke.") === 0) return "strokes";
+  return null;
+}
+
+/*
+  Under `documentAccess: dynamic-page` the style id is read-only, so the only way
+  to let go of it is the async setter. Returns whether there was a link to break,
+  so the caller can say so.
+*/
+async function detachPaintStyle(node, prop) {
+  const key = prop === "fills" ? "fillStyleId" : "strokeStyleId";
+  const id = safe(() => node[key], "");
+  if (!id || id === figma.mixed) return false;
+  const setter = prop === "fills" ? "setFillStyleIdAsync" : "setStrokeStyleIdAsync";
+  if (typeof node[setter] === "function") await node[setter]("");
+  else node[key] = "";                     // pre-dynamic-page API surface
+  return true;
 }
 
 function setPaintAt(node, prop, index, patch) {
@@ -1709,6 +1784,127 @@ function distributeEven(nodes, axis, gap) {
   }
 }
 
+/* ---- scale --------------------------------------------------------------- */
+
+/* Which point of the selection's box stays where it is. */
+const ANCHOR_FRACTIONS = {
+  tl: [0, 0], tc: [0.5, 0], tr: [1, 0],
+  cl: [0, 0.5], cc: [0.5, 0.5], cr: [1, 0.5],
+  bl: [0, 1], bc: [0.5, 1], br: [1, 1]
+};
+const SCALE_MIN = 0.01;      // rescale() throws below this
+const SCALE_MAX = 100;
+
+/*
+  The size the Scale panel shows. One layer reads as its own width and height —
+  the same numbers as the Design panel, so the two never disagree — while a
+  multiple selection reads as the box around it, which is what scaling it moves.
+  Nothing here walks a subtree: it is one bounding box per selected node.
+*/
+function selectionBox(nodes) {
+  const live = nodes.filter((n) => "width" in n);
+  if (!live.length) return null;
+  if (live.length === 1) {
+    return { w: live[0].width, h: live[0].height, single: true };
+  }
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  for (const n of live) {
+    const b = safe(() => n.absoluteBoundingBox, null);
+    if (!b) continue;
+    x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y);
+    x2 = Math.max(x2, b.x + b.width); y2 = Math.max(y2, b.y + b.height);
+  }
+  if (!isFinite(x1)) return null;
+  return { w: x2 - x1, h: y2 - y1, single: false };
+}
+
+/*
+  rescale() is the Scale tool: strokes, corner radii and font sizes go with the
+  geometry, unlike resize(), which only changes the box. It scales from the
+  node's own origin, so anchoring anywhere else means moving the node afterwards
+  — and for more than one node the anchor is a point on the selection's box, so
+  the gaps between them scale too, the way dragging the Scale tool does.
+*/
+function scaleSelection(nodes, factor, anchor) {
+  const f = Number(factor);
+  if (!isFinite(f) || f < SCALE_MIN || f > SCALE_MAX) {
+    figma.notify("Scale has to be between " + SCALE_MIN + " and " + SCALE_MAX);
+    return;
+  }
+  if (f === 1) return;
+
+  // A layer inside another selected layer is already being scaled by it; scaling
+  // it again on its own account would square the factor on that branch.
+  const rescalable = nodes.filter((n) => typeof n.rescale === "function");
+  const usable = rescalable.filter((n) => !rescalable.some((o) => o !== n && isAncestorOf(o, n)));
+  if (!usable.length) {
+    figma.notify(nodes.length ? "These layers cannot be scaled" : "Select a layer to scale");
+    return;
+  }
+
+  const frac = ANCHOR_FRACTIONS[anchor] || ANCHOR_FRACTIONS.cc;
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  for (const n of usable) {
+    const b = safe(() => n.absoluteBoundingBox, null);
+    if (!b) continue;
+    x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y);
+    x2 = Math.max(x2, b.x + b.width); y2 = Math.max(y2, b.y + b.height);
+  }
+  const known = isFinite(x1);
+  const ax = known ? x1 + (x2 - x1) * frac[0] : 0;
+  const ay = known ? y1 + (y2 - y1) * frac[1] : 0;
+
+  const failures = [];
+  for (const node of usable) {
+    // The point rescale() holds still is the node's own origin, which is the
+    // translation in its absolute transform — not the corner of its bounding
+    // box, which is somewhere else entirely once the node is rotated.
+    const origin = known ? nodeOrigin(node) : null;
+    try {
+      node.rescale(f);
+    } catch (e) {
+      failures.push(safe(() => node.name, "a layer") + ": " + errText(e));
+      continue;
+    }
+    if (!origin || isLayoutManaged(node)) continue;   // auto layout owns x and y
+    const dx = (origin.x - ax) * (f - 1);
+    const dy = (origin.y - ay) * (f - 1);
+    if (dx || dy) nudgeAbsolute(node, dx, dy);
+  }
+
+  const skipped = nodes.length - rescalable.length;
+  if (failures.length) figma.notify(failures[0], { error: true });
+  else if (skipped) figma.notify(skipped + (skipped === 1 ? " layer" : " layers") + " cannot be scaled");
+}
+
+function nodeOrigin(node) {
+  const t = safe(() => node.absoluteTransform, null);
+  if (t) return { x: t[0][2], y: t[1][2] };
+  return safe(() => ({ x: node.x, y: node.y }), null);
+}
+
+/*
+  x and y are the node's offset inside its parent, so a move measured on the
+  canvas has to be turned back into the parent's frame of reference first: inside
+  a rotated frame, "40px to the right" is not 40px along x.
+*/
+function nudgeAbsolute(node, dx, dy) {
+  const t = safe(() => node.parent && node.parent.absoluteTransform, null);
+  let rx = dx, ry = dy;
+  if (t) {
+    const a = t[0][0], b = t[0][1], c = t[1][0], d = t[1][1];
+    const det = a * d - b * c;
+    if (det) {
+      rx = (d * dx - b * dy) / det;
+      ry = (a * dy - c * dx) / det;
+    }
+  }
+  try {
+    node.x += rx;
+    node.y += ry;
+  } catch (e) { /* not movable; the scale itself still stands */ }
+}
+
 /* ---- reordering / reparenting -------------------------------------------- */
 
 function isAncestorOf(maybeAncestor, node) {
@@ -1767,7 +1963,7 @@ async function moveNodes(ids, targetId, pos) {
     try {
       parent.insertChild(idx, n);
     } catch (e) {
-      figma.notify("Can't move “" + n.name + "”: " + e.message);
+      figma.notify("Can't move “" + n.name + "”: " + errText(e));
       return;
     }
     index = parent.children.indexOf(n) + 1;
@@ -1826,7 +2022,7 @@ async function renameMatches(renames, target) {
       }
     } catch (e) {
       // Reading .name for the message can throw for the same reason the write did.
-      failures.push(safe(() => node.name, r.id) + ": " + e.message);
+      failures.push(safe(() => node.name, r.id) + ": " + errText(e));
     }
   }
   if (done) figma.commitUndo();
@@ -2586,7 +2782,7 @@ async function pushLibraryVariables(opts) {
     try {
       libs = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync();
     } catch (e) {
-      teamError = e.message || String(e);
+      teamError = errText(e);
     }
   }
 
@@ -2743,7 +2939,7 @@ async function bindOne(node, field, variable, index, sub) {
       node.setBoundVariable(field, variable);
     }
   } catch (e) {
-    return e.message;
+    return errText(e);
   }
   return null;
 }
@@ -2758,7 +2954,7 @@ async function setVariableMode(nodes, collectionId, modeId) {
       if (modeId === "__AUTO__") node.clearExplicitVariableModeForCollection(col);
       else node.setExplicitVariableModeForCollection(col, modeId);
     } catch (e) {
-      figma.notify("Can't set mode: " + e.message, { error: true });
+      figma.notify("Can't set mode: " + errText(e), { error: true });
     }
   }
   figma.commitUndo();
@@ -2788,11 +2984,11 @@ figma.ui.onmessage = async (msg) => {
   try {
     await handleMessage(msg);
   } catch (e) {
-    figma.notify(e.message || String(e), { error: true });
+    figma.notify(errText(e), { error: true });
     // Mirror it into the panel too, where it can be copied as text.
     figma.ui.postMessage({
       type: "error",
-      message: (msg && msg.type ? "[" + msg.type + "] " : "") + (e.message || String(e)),
+      message: (msg && msg.type ? "[" + msg.type + "] " : "") + errText(e),
       stack: e.stack || null
     });
     pushSelectionSoon();
@@ -2935,6 +3131,15 @@ async function handleMessage(msg) {
         return;
       }
 
+      // Scale acts on the selection as one thing, like align and distribute: the
+      // anchor is a point on the box around all of it.
+      if (msg.key === "scale") {
+        scaleSelection(nodes, msg.value && msg.value.factor, msg.value && msg.value.anchor);
+        figma.commitUndo();
+        await pushSelection();
+        return;
+      }
+
       if (msg.key === "__none__") return;
 
       // "Selection colours": swap one solid colour for another everywhere below
@@ -2967,12 +3172,24 @@ async function handleMessage(msg) {
       }
 
       const failures = [];
+      let detached = 0;
+      const paints = paintProp(msg.key);
       for (const node of nodes) {
         try {
+          // A paint style is a link, and the paint array is what it links to:
+          // writing the array while the link holds throws. Editing a colour by
+          // hand is the moment the user decided to stop following the style.
+          if (paints && await detachPaintStyle(node, paints)) detached++;
           await applyUpdate(node, msg.key, msg.value, msg.index, msg.extra);
         } catch (e) {
-          failures.push(node.name + ": " + e.message);
+          failures.push(safe(() => node.name, "a layer") + ": " + errText(e));
         }
+      }
+      // Not on every frame of a drag — only when the edit is committed.
+      if (detached && msg.commit !== false) {
+        figma.notify(detached === 1
+          ? "Style detached — that colour is the layer's own now"
+          : detached + " styles detached");
       }
       if (failures.length === nodes.length && failures.length) {
         figma.notify(failures[0], { error: true });
@@ -3151,7 +3368,7 @@ async function handleMessage(msg) {
       for (const node of await selectedNodes()) {
         if (node.type !== "INSTANCE") continue;
         try { node.swapComponent(target); swapped++; } catch (e) {
-          figma.notify("Can't swap “" + node.name + "”: " + e.message, { error: true });
+          figma.notify("Can't swap “" + node.name + "”: " + errText(e), { error: true });
         }
       }
       if (swapped) figma.commitUndo();
@@ -3218,7 +3435,11 @@ async function handleMessage(msg) {
 
     case "setPref": {
       if (msg.theme) prefs.theme = msg.theme;
-      try { await figma.clientStorage.setAsync("ui-prefs", prefs); } catch (e) { /* quota */ }
+      if (msg.layout) prefs.layout = msg.layout;
+      if (msg.panes) prefs.panes = msg.panes;
+      if (msg.splits) prefs.splits = msg.splits;
+      if (msg.anchor) prefs.anchor = msg.anchor;
+      saveLater("ui-prefs", prefs);
       return;
     }
 

@@ -11,7 +11,7 @@ Run everything:
 npm test
 ```
 
-32 files must pass: 2 integrity checks, 5 main-thread tests, 25 panel tests.
+51 files must pass: 2 integrity checks, 15 main-thread tests, 34 panel tests.
 
 ## Narrow it down
 
@@ -49,7 +49,11 @@ main thread threw, which would show as an orange Figma toast.
 : Walks both sides of the postMessage conversation and fails when one says
   something the other never listens for: every `upd("key")` has a case in
   `applyUpdate`, every `send({type})` is routed, every `postMessage({type})` is
-  received. Also fails if a machine-specific path leaked into a shipped file.
+  received. Then two things about the files themselves: no machine-specific path
+  leaked into either, and neither reaches for the network — opening the panel must
+  never wait on a request. Keys that act on the whole selection (`align`,
+  `distribute`, `tidy`, `replaceColor`, `scale`) are listed in this file too, so a
+  new one has to be added here as well.
 
 ## If you changed the protocol
 

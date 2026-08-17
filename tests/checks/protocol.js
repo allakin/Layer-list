@@ -8,6 +8,9 @@
  *   1. every upd("key") the panel sends has a case in applyUpdate;
  *   2. every send({type}) has a case in the message router;
  *   3. every postMessage({type}) the plugin sends has a case in onmessage.
+ *
+ * Then two things about the files themselves: that no machine-specific path
+ * leaked into them, and that neither of them reaches for the network.
  */
 const fs = require("fs");
 const path = require("path");
@@ -21,7 +24,7 @@ const cases = new Set([...code.matchAll(/case "([^"]+)":/g)].map((m) => m[1]));
 
 /* Keys handled before the per-node loop in the update case, so they never reach
    applyUpdate's switch. Keep in sync with code.js. */
-const SELECTION_LEVEL = new Set(["align", "distribute", "tidy", "replaceColor", "__none__"]);
+const SELECTION_LEVEL = new Set(["align", "distribute", "tidy", "replaceColor", "scale", "__none__"]);
 
 let failed = 0;
 function report(label, missing) {
@@ -58,6 +61,22 @@ const leaked = [];
   if (/\/Users\/|\/tmp\//.test(text)) leaked.push(name);
 });
 report("no machine-specific paths in shipped files", leaked);
+
+/* ---- 5. nothing here waits on the network ----
+ * The manifest says `allowedDomains: ["none"]`, and the panel has to open with no
+ * round trip at all: the saved index covers the first paint and the team-library
+ * catalogue is asked for only when a picker needs it (through the plugin API, not
+ * a URL). The one request that ever failed was Figma's own plugin VM timing out
+ * on its CDN — an error whose stack sits entirely in figma_app-*.min.js and which
+ * no plugin can prevent. What a plugin *can* do is never add a request of its own
+ * to the path between opening it and seeing it, and that is what this pins.
+ */
+const NETWORK = /\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|importScripts|\bimport\s*\(/;
+const reaches = [];
+[["code.js", code], ["ui.html", ui]].forEach(([name, text]) => {
+  if (NETWORK.test(text)) reaches.push(name);
+});
+report("neither side reaches for the network", reaches);
 
 console.log("\n  " + cases.size + " cases in code.js · " + updKeys.size +
   " property keys · " + sent.size + " outbound types · " + posted.size + " inbound types");
