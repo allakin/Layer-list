@@ -127,10 +127,30 @@ style preference.
     direction the ramp runs — reading the first column transposes it.
     → `tests/plugin/gradient-stops.js`, `tests/ui/gradient-editing.js`
 
+15. **The panel's own window is restored before it is shown.** Size and position
+    come out of `clientStorage`, which is asynchronous, so the window is created
+    with `visible: false` and `show()` only after both are applied — shown first,
+    it paints once at the default size and place and then jumps. `show()` runs
+    whatever the read did, because storage that will not answer must cost the
+    placement and never the panel. `reposition()` takes **canvas** coordinates
+    while what the user arranged is a place on **screen**: save window space and
+    convert through one `getPosition()`, which answers in both spaces for the
+    same point, or the window moves itself in every file at a different zoom.
+    → `tests/plugin/window-placement.js`
+
 ## What the API cannot do
 
 Do not spend time trying to work around these; say so in the UI instead.
 
+- There is **no filesystem**. The main thread is a sandbox with no `fs`, and the
+  panel is a null-origin iframe where even `localStorage` is unavailable. Nothing
+  the plugin can do puts a settings file in the project folder — the only route to
+  disk is a download the user clicks. `figma.clientStorage` is the local store:
+  per user, per device, never synced, outside the document, 5 MB, and reachable
+  only from the main thread (the panel goes through `postMessage`). There is
+  nothing for `.gitignore` to cover, because there is no file.
+- Nothing fires when the user moves or resizes the plugin window, so the position
+  is polled (see below) and the size arrives as a `resize` message from the grip.
 - Library **styles** cannot be enumerated. They are harvested from what the
   document already uses (`scanDocument`). Library **variables** have a real
   catalogue via `figma.teamLibrary`, but only when the file subscribes to it.
@@ -172,9 +192,18 @@ every pointer move and each one used to do all of the work at once:
   `INDEX_SAMPLE_NODES` for the index, where every id found costs a lookup.
   Neither needs to be exhaustive — the background scan is the thorough one.
 
+The window position is the one thing here that is polled, because no event
+reports it (`POS_POLL_MS`, **1 s**). That is affordable only because
+`figma.ui.getPosition()` reads no node and walks nothing; the poll stops the
+moment it throws, rather than waking up for a plugin that has closed. What costs
+is the write, so both it and the resize grip go through `saveLater` — one
+`clientStorage` write per key, **400 ms** after things stop moving, instead of one
+per pointer move.
+
 Tests that depend on the scan have to outwait `SCAN_START_DELAY_MS` (see
 `SCAN_WAIT` in the index tests); tests that fire `selectionchange` have to
-outwait the 90 ms window (see `SETTLE` in `unreadable-selection.js`).
+outwait the 90 ms window (see `SETTLE` in `unreadable-selection.js`); tests that
+watch the window position have to outwait `POS_POLL_MS` plus the save debounce.
 
 ## Conventions
 
@@ -207,7 +236,7 @@ outwait the 90 ms window (see `SETTLE` in `unreadable-selection.js`).
 npm test
 ```
 
-46 files: 2 integrity checks, 12 main-thread tests, 32 panel tests. All must pass.
+47 files: 2 integrity checks, 13 main-thread tests, 32 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that

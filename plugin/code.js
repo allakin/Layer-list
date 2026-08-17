@@ -30,17 +30,123 @@ const DROP_TARGETS = new Set([
 
 /* ---- boot ---------------------------------------------------------------- */
 
+/*
+  Where the panel sits and how big it is belongs to the person using it, not to
+  the document, so it lives in clientStorage: on this machine, for this user,
+  outside the .fig file and outside the repository. A plugin cannot write to disk
+  at all — there is no file to gitignore, and nothing here appears in the project
+  folder.
+
+  The window starts hidden because reading that back is asynchronous: shown
+  first, it would paint one frame at the default size and place and then jump.
+  show() is unconditional, so storage that refuses to answer costs the saved
+  placement and never the panel itself.
+*/
+const UI_DEFAULT = { w: 660, h: 760 };
+const UI_MIN = { w: 260, h: 320 };
+
 figma.showUI(__html__, {
-  width: 660,
-  height: 760,
+  visible: false,
+  width: UI_DEFAULT.w,
+  height: UI_DEFAULT.h,
   themeColors: true,
   title: "Layers & Design"
 });
 
 (async () => {
-  const size = await figma.clientStorage.getAsync("ui-size");
-  if (size && size.w && size.h) figma.ui.resize(size.w, size.h);
+  let pos = null;
+  try {
+    const size = await figma.clientStorage.getAsync("ui-size");
+    if (size && size.w && size.h) {
+      figma.ui.resize(Math.max(UI_MIN.w, size.w), Math.max(UI_MIN.h, size.h));
+    }
+    pos = await figma.clientStorage.getAsync("ui-pos");
+  } catch (e) {
+    /* nothing saved yet, or storage is unavailable: the defaults stand */
+  }
+  // Placing it while it is still hidden is the whole point of starting hidden.
+  // Should the position not be readable until the window is up, placing it after
+  // still beats leaving it wherever Figma decided to put it.
+  const placed = placeWindow(pos);
+  try { figma.ui.show(); } catch (e) { return; }   // closed while we were reading
+  if (!placed) placeWindow(pos);
+  watchWindowPosition();
 })();
+
+/*
+  reposition() speaks canvas coordinates, but what the user arranged is a place
+  on screen, and the canvas coordinates of that place depend on the current
+  scroll and zoom — saved as canvas coordinates it would land somewhere else
+  entirely in the next file. So window space is what gets saved, and
+  getPosition() answers in both spaces at once for the same point, which is all
+  it takes to convert: a distance in window space is that distance over the zoom
+  in canvas space.
+
+  Returns false only when there was a position to restore and it could not be
+  measured, so the caller knows to try again.
+*/
+function placeWindow(pos) {
+  if (!pos || !isFinite(pos.x) || !isFinite(pos.y)) return true;
+  let now;
+  try { now = figma.ui.getPosition(); } catch (e) { return false; }
+  const zoom = figma.viewport.zoom || 1;
+  figma.ui.reposition(
+    now.canvasSpace.x + (pos.x - now.windowSpace.x) / zoom,
+    now.canvasSpace.y + (pos.y - now.windowSpace.y) / zoom
+  );
+  return true;
+}
+
+/*
+  Nothing fires when the user drags the plugin window, so the position has to be
+  looked at. getPosition() reads no node and walks nothing — that is what makes
+  polling it affordable where polling the document would not be — and the write
+  it leads to is debounced and only happens when the window has actually moved.
+
+  The first reading is the one we just restored, so it seeds and saves nothing.
+  A reading that throws means there is no window any more: stop, rather than
+  wake up once a second for a plugin that has closed.
+*/
+const POS_POLL_MS = 1000;
+let lastPos = null;
+
+function watchWindowPosition() {
+  const tick = () => {
+    let win;
+    try { win = figma.ui.getPosition().windowSpace; } catch (e) { return; }
+    const at = { x: Math.round(win.x), y: Math.round(win.y) };
+    // Figma keeps the window inside the viewport, so what it ends up at can
+    // differ from what was asked for. What the user can see is what gets saved.
+    if (!lastPos) lastPos = at;
+    else if (lastPos.x !== at.x || lastPos.y !== at.y) {
+      lastPos = at;
+      saveLater("ui-pos", at);
+    }
+    setTimeout(tick, POS_POLL_MS);
+  };
+  setTimeout(tick, POS_POLL_MS);
+}
+
+/*
+  One write per key, once things have stopped moving. The resize grip sends a
+  message on every pointer move and a window drag reports a new position every
+  second; each of those used to be a clientStorage write of its own.
+*/
+const SAVE_DEBOUNCE_MS = 400;
+const pendingSaves = new Map();
+
+function saveLater(key, value) {
+  const prev = pendingSaves.get(key);
+  if (prev) clearTimeout(prev.timer);
+  pendingSaves.set(key, {
+    value: value,
+    timer: setTimeout(() => {
+      const entry = pendingSaves.get(key);
+      pendingSaves.delete(key);
+      figma.clientStorage.setAsync(key, entry.value).catch(() => { /* over quota */ });
+    }, SAVE_DEBOUNCE_MS)
+  });
+}
 
 /* ---- panel preferences (theme) ------------------------------------------- */
 
@@ -2712,10 +2818,10 @@ async function handleMessage(msg) {
     }
 
     case "resize": {
-      const w = Math.max(260, Math.round(msg.w));
-      const h = Math.max(320, Math.round(msg.h));
+      const w = Math.max(UI_MIN.w, Math.round(msg.w));
+      const h = Math.max(UI_MIN.h, Math.round(msg.h));
       figma.ui.resize(w, h);
-      await figma.clientStorage.setAsync("ui-size", { w, h });
+      saveLater("ui-size", { w, h });
       return;
     }
 

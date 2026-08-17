@@ -30,18 +30,44 @@ function mkNode(o) {
   return n;
 }
 
+/*
+ * The plugin window. Everything the plugin does to it is recorded in order,
+ * because the order is the point: the size and the position have to be applied
+ * before it is shown, or the user watches it jump.
+ *
+ * getPosition() throws until a test says where the window is, the way it does
+ * when there is no UI — which is also what stops the position poll, so a test
+ * that never places a window still exits.
+ */
+const uiLog = [];
+let uiPos = null;
+function setUiPosition(windowSpace, canvasSpace) {
+  uiPos = { windowSpace: windowSpace, canvasSpace: canvasSpace || { x: 0, y: 0 } };
+}
+
 global.figma = {
   mixed: Symbol("mixed"),
   skipInvisibleInstanceChildren: false,
-  showUI() {},
+  showUI(html, opts) { uiLog.push({ call: "showUI", opts: opts || {} }); },
   notify(m) { console.log("NOTIFY:", m); posted.push({ notify: m }); },
   commitUndo() {},
   clientStorage: { getAsync: async (k) => clientStore[k] === undefined ? null : clientStore[k], setAsync: async (k,v) => { clientStore[k] = JSON.parse(JSON.stringify(v)); } },
-  ui: { postMessage: (m) => posted.push(m), resize() {}, set onmessage(fn) { uiHandler = fn; } },
+  ui: {
+    postMessage: (m) => posted.push(m),
+    resize(w, h) { uiLog.push({ call: "resize", w: w, h: h }); },
+    reposition(x, y) { uiLog.push({ call: "reposition", x: x, y: y }); },
+    show() { uiLog.push({ call: "show" }); },
+    hide() { uiLog.push({ call: "hide" }); },
+    getPosition() {
+      if (!uiPos) throw new Error("no UI available");
+      return uiPos;
+    },
+    set onmessage(fn) { uiHandler = fn; }
+  },
   on(t, fn) { events[t] = fn; }, off() {},
   root: { children: [] },
   currentPage: null,
-  viewport: { scrollAndZoomIntoView() {} },
+  viewport: { zoom: 1, scrollAndZoomIntoView() {} },
   getNodeByIdAsync: async (id) => nodesById.get(id) || null,
   getStyleByIdAsync: async () => null,
   variables: {
@@ -84,4 +110,4 @@ function finish() {
 }
 
 global.__html__ = "<html></html>";
-module.exports = { events, pageEvents, clientStore, posted, mkNode, nodesById, expect, finish, send: (m) => uiHandler(m), get ui() { return uiHandler; } };
+module.exports = { events, pageEvents, clientStore, posted, mkNode, nodesById, expect, finish, uiLog, setUiPosition, send: (m) => uiHandler(m), get ui() { return uiHandler; } };
