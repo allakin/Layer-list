@@ -1094,6 +1094,10 @@ async function applyUpdate(node, key, value, index, extra) {
     case "fill.remove": removeAt(node, "fills", index); break;
     case "fill.reorder": reorder(node, "fills", index, extra); break;
     case "fill.gradientStop": setGradientStop(node, "fills", index, extra, value); break;
+    case "fill.gradientStopAdd": addGradientStop(node, "fills", index, extra, value); break;
+    case "fill.gradientStopRemove": removeGradientStop(node, "fills", index, extra); break;
+    case "fill.gradientReverse": reverseGradient(node, "fills", index); break;
+    case "fill.gradientRotate": rotateGradient(node, "fills", index); break;
     case "fill.toGradient": convertPaint(node, "fills", index, value); break;
 
     case "stroke.color": setPaintAt(node, "strokes", index, { color: hexToRgb(value) }); break;
@@ -1103,6 +1107,10 @@ async function applyUpdate(node, key, value, index, extra) {
     case "stroke.add": addPaint(node, "strokes"); break;
     case "stroke.remove": removeAt(node, "strokes", index); break;
     case "stroke.gradientStop": setGradientStop(node, "strokes", index, extra, value); break;
+    case "stroke.gradientStopAdd": addGradientStop(node, "strokes", index, extra, value); break;
+    case "stroke.gradientStopRemove": removeGradientStop(node, "strokes", index, extra); break;
+    case "stroke.gradientReverse": reverseGradient(node, "strokes", index); break;
+    case "stroke.gradientRotate": rotateGradient(node, "strokes", index); break;
     case "stroke.scaleMode": setPaintAt(node, "strokes", index, { scaleMode: value }); break;
     case "stroke.toGradient": convertPaint(node, "strokes", index, value); break;
     case "stroke.reorder": reorder(node, "strokes", index, extra); break;
@@ -1282,10 +1290,27 @@ function reorder(node, prop, from, to) {
   node[prop] = arr;
 }
 
+/* ---- gradients ----------------------------------------------------------- */
+
+function gradientAt(arr, index) {
+  const paint = arr[index];
+  return paint && paint.gradientStops ? paint : null;
+}
+
+/*
+  Figma reads gradientStops in array order, so a stop dragged past its neighbour
+  has to change places with it or the ramp folds back on itself. Sorting the
+  array — rather than rebuilding it from colours — keeps every stop object, and
+  with it the variable bound to that stop's colour.
+*/
+function sortStops(paint) {
+  paint.gradientStops.sort((a, b) => a.position - b.position);
+}
+
 function setGradientStop(node, prop, paintIndex, stopIndex, patch) {
   const arr = clone(node[prop]);
-  const paint = arr[paintIndex];
-  if (!paint || !paint.gradientStops) return;
+  const paint = gradientAt(arr, paintIndex);
+  if (!paint) return;
   const stop = paint.gradientStops[stopIndex];
   if (!stop) return;
   if (patch.color) {
@@ -1293,8 +1318,78 @@ function setGradientStop(node, prop, paintIndex, stopIndex, patch) {
     stop.color = { r: c.r, g: c.g, b: c.b, a: stop.color.a };
   }
   if (patch.a != null) stop.color.a = patch.a;
-  if (patch.pos != null) stop.position = Math.max(0, Math.min(1, patch.pos));
+  if (patch.pos != null) {
+    stop.position = Math.max(0, Math.min(1, patch.pos));
+    sortStops(paint);
+  }
   node[prop] = arr;
+}
+
+// The panel says where the stop goes and what colour it is — it has the ramp
+// under the pointer and can read the colour already showing at that point.
+function addGradientStop(node, prop, paintIndex, at, stop) {
+  const arr = clone(node[prop]);
+  const paint = gradientAt(arr, paintIndex);
+  if (!paint || !stop) return;
+  const c = hexToRgb(stop.color || "#FFFFFF");
+  const pos = Math.max(0, Math.min(1, stop.pos == null ? 0.5 : stop.pos));
+  const i = at == null ? paint.gradientStops.length
+    : Math.max(0, Math.min(paint.gradientStops.length, at));
+  paint.gradientStops.splice(i, 0, {
+    color: { r: c.r, g: c.g, b: c.b, a: stop.a == null ? 1 : stop.a },
+    position: pos
+  });
+  sortStops(paint);
+  node[prop] = arr;
+}
+
+// Two stops are what makes a gradient one; Figma's own picker stops there.
+function removeGradientStop(node, prop, paintIndex, stopIndex) {
+  const arr = clone(node[prop]);
+  const paint = gradientAt(arr, paintIndex);
+  if (!paint || paint.gradientStops.length <= 2) return;
+  if (!paint.gradientStops[stopIndex]) return;
+  paint.gradientStops.splice(stopIndex, 1);
+  node[prop] = arr;
+}
+
+// Mirroring the ramp moves the stop objects, not their colours, so each one
+// keeps whatever variable is bound to it.
+function reverseGradient(node, prop, paintIndex) {
+  const arr = clone(node[prop]);
+  const paint = gradientAt(arr, paintIndex);
+  if (!paint) return;
+  paint.gradientStops.forEach((s) => { s.position = 1 - s.position; });
+  sortStops(paint);
+  node[prop] = arr;
+}
+
+/*
+  gradientTransform maps the object's unit square into the space the ramp runs
+  across, so turning the gradient means composing that matrix with a quarter
+  turn about the square's centre — (x, y) -> (y, 1 - x). Four presses come back
+  to where they started, exactly.
+*/
+const QUARTER_TURN = [[0, 1, 0], [-1, 0, 1]];
+
+function rotateGradient(node, prop, paintIndex) {
+  const arr = clone(node[prop]);
+  const paint = gradientAt(arr, paintIndex);
+  if (!paint) return;
+  paint.gradientTransform = mulTransform(
+    paint.gradientTransform || [[1, 0, 0], [0, 1, 0]], QUARTER_TURN);
+  node[prop] = arr;
+}
+
+// 2x3 affine product, the third row being an implied [0, 0, 1].
+function mulTransform(m, n) {
+  const out = [[0, 0, 0], [0, 0, 0]];
+  for (let i = 0; i < 2; i++) {
+    out[i][0] = m[i][0] * n[0][0] + m[i][1] * n[1][0];
+    out[i][1] = m[i][0] * n[0][1] + m[i][1] * n[1][1];
+    out[i][2] = m[i][0] * n[0][2] + m[i][1] * n[1][2] + m[i][2];
+  }
+  return out;
 }
 
 // SOLID <-> gradient conversion, keeping the current colour as the first stop.

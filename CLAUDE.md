@@ -109,6 +109,24 @@ style preference.
     out when there isn't one.
     → `tests/plugin/library-main-component.js`
 
+13. **A pointer capture belongs to something no repaint replaces.**
+    `setPointerCapture` on an element that has left the document throws
+    `InvalidStateError`, and pressing a thing usually selects it, which usually
+    repaints it. Capture on the container — the gradient ramp, not the handle in
+    it — and for the same reason wire the container's listeners once at build
+    time, never from the painter, or every repaint adds another.
+    → `tests/ui/gradient-editing.js`
+
+14. **Gradient stops live in position order.** Figma reads `gradientStops` in
+    array order, so a stop dragged past its neighbour has to change places with
+    it. Both sides sort, and the index travels with the edit that caused the
+    sort, so the panel has to follow the stop rather than the slot it was in.
+    Every operation moves stop *objects*: rebuilt from colours, they lose the
+    variable bound to them. `gradientTransform` is a 2x3 matrix mapping the unit
+    square into the space the ramp runs across, so its **first row** is the
+    direction the ramp runs — reading the first column transposes it.
+    → `tests/plugin/gradient-stops.js`, `tests/ui/gradient-editing.js`
+
 ## What the API cannot do
 
 Do not spend time trying to work around these; say so in the UI instead.
@@ -172,8 +190,11 @@ outwait the 90 ms window (see `SETTLE` in `unreadable-selection.js`).
 - The colour picker is two columns — the palette left, the file's styles and
   tokens right — and stacks below `CP_TWO_COL_MIN` (420 px), because the panel
   itself goes down to 260. The palette stays first in the DOM whichever way they
-  sit: the hex field has to remain the picker's first `<input>`.
-  → `tests/ui/colour-picker-columns.js`
+  sit: the hex field has to remain the picker's first `<input>`. That is also why
+  the gradient ramp and its stop rows sit *below* the hex field rather than
+  directly under the type dropdown where Figma draws them — those rows are inputs
+  too.
+  → `tests/ui/colour-picker-columns.js`, `tests/ui/gradient-editing.js`
 - Theme: dark by default and defined without reference to Figma's variables, so
   the panel does not read as part of Figma's chrome. `data-theme="auto"` hands
   the palette back to Figma. Sizing tokens live in their own `:root` rule so they
@@ -186,7 +207,7 @@ outwait the 90 ms window (see `SETTLE` in `unreadable-selection.js`).
 npm test
 ```
 
-44 files: 2 integrity checks, 11 main-thread tests, 31 panel tests. All must pass.
+46 files: 2 integrity checks, 12 main-thread tests, 32 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that

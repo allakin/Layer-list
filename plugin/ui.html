@@ -574,12 +574,46 @@ svg { display: block; width: 16px; height: 16px; flex: 0 0 auto; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tok-row .nm .leaf { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tok-row .val { color: var(--text-3); flex: 0 0 auto; }
-.gstrip { position: relative; height: 24px; margin: 0 8px 8px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--border); }
+/* ---- gradient ramp and its stops ---------------------------------------- */
+/* The ramp always reads left to right: it edits stop positions, and where the
+   gradient actually points belongs to the canvas. Clicking bare ramp adds a
+   stop, so the cursor says copy rather than text. */
+.gstrip {
+  position: relative; height: 24px; margin: 0 8px 8px; border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--border); cursor: copy; touch-action: none;
+}
+.gstrip:focus { outline: none; box-shadow: inset 0 0 0 1px var(--border), 0 0 0 2px var(--bg-sel-strong); }
+/* Chequers behind the colour, because the gradient Figma makes by default ends
+   in a fully transparent stop — painted flat, that handle is an invisible hole
+   in the ramp. Same reason .sw has them. */
 .gstrip .gs {
   position: absolute; top: -3px; width: 10px; height: 30px; margin-left: -5px;
   border-radius: 3px; box-shadow: 0 0 0 1.5px #fff, 0 0 4px rgba(0,0,0,.45);
+  cursor: grab; overflow: hidden; background-color: var(--bg-1); background-size: 6px 6px;
+  background-image:
+    linear-gradient(45deg, var(--bg-3) 25%, transparent 25%, transparent 75%, var(--bg-3) 75%),
+    linear-gradient(45deg, var(--bg-3) 25%, transparent 25%, transparent 75%, var(--bg-3) 75%);
+  background-position: 0 0, 3px 3px;
 }
-.gstrip .gs.on { box-shadow: 0 0 0 2px var(--brand), 0 0 4px rgba(0,0,0,.45); }
+.gstrip .gs i { position: absolute; inset: 0; display: block; }
+.gstrip .gs.on { box-shadow: 0 0 0 2px var(--brand), 0 0 4px rgba(0,0,0,.45); z-index: 1; }
+.gsrow { display: flex; align-items: center; gap: 4px; height: 26px; border-radius: var(--r); padding: 0 2px; }
+.gsrow.on { background: var(--bg-sel); }
+.gsrow .gsf {
+  display: flex; align-items: center; gap: 4px; height: 22px; min-width: 0;
+  background: var(--bg-2); border-radius: 5px; padding: 0 5px;
+}
+.gsrow .gsf input {
+  border: none; outline: none; background: none; color: var(--text);
+  width: 100%; min-width: 0; padding: 0;
+}
+/* Both ends of the row are fixed and the colour takes what is left: at the
+   panel's narrowest the hex still has 60px, which is 6 characters and change. */
+.gsrow .gsf.pos { flex: 0 0 46px; }
+.gsrow .gsf.col { flex: 1 1 auto; }
+.gsrow .gsf.col input { text-transform: uppercase; }
+.gsrow .gsf.op { flex: 0 0 46px; }
+.gsrow .unit { color: var(--text-3); flex: 0 0 auto; }
 
 .libstat {
   display: flex; align-items: center; gap: 6px; color: var(--text-2);
@@ -965,11 +999,18 @@ function hexAlphaCss(hex, a) {
   var c = hexToRgb255(hex);
   return "rgba(" + Math.round(c.r) + "," + Math.round(c.g) + "," + Math.round(c.b) + "," + (a == null ? 1 : a) + ")";
 }
-// Figma stores gradients as a 2x3 matrix; recover the CSS angle from it.
+/*
+  Figma stores a gradient as a 2x3 matrix mapping the object's unit square into
+  the space the ramp runs across, so the direction the ramp runs *in the object*
+  is that matrix's first row — not its first column, which is where the object's
+  x axis ends up. Reading the column transposes the matrix, which mirrors every
+  angle that is not a multiple of 45°, and the rotate button makes that obvious.
+  CSS measures from "to top" clockwise and the panel's y axis points down, hence
+  atan2(a, -b): identity is 90° (left to right), a quarter turn 180° (downwards).
+*/
 function gradientAngle(t) {
-  if (!t) return 180;
-  var a = t[0][0], b = t[1][0];
-  var deg = Math.atan2(b, a) * 180 / Math.PI + 90;
+  if (!t) return 90;
+  var deg = Math.atan2(t[0][0], -t[0][1]) * 180 / Math.PI;
   return Math.round(((deg % 360) + 360) % 360);
 }
 
@@ -1030,6 +1071,9 @@ var I = {
   tidy: ic('<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/>'),
   flipH: ic('<path d="M8 1.5v13" stroke-dasharray="2 1.6"/><path d="M6.2 5v6L3 8Z" fill="currentColor" stroke="none"/><path d="M9.8 5v6L13 8Z" fill="currentColor" stroke="none"/>'),
   flipV: ic('<path d="M1.5 8h13" stroke-dasharray="2 1.6"/><path d="M5 6.2h6L8 3Z" fill="currentColor" stroke="none"/><path d="M5 9.8h6L8 13Z" fill="currentColor" stroke="none"/>'),
+  // Gradient ramp controls: the two ends changing places, and a quarter turn.
+  gradSwap: ic('<path d="M2.5 5.5h11M11 3l2.5 2.5L11 8"/><path d="M13.5 11.5h-11M5 9l-2.5 2.5L5 14"/>'),
+  gradRotate: ic('<rect x="3.5" y="6.5" width="6" height="6" rx="1"/><path d="M6.5 3.5h4a2 2 0 0 1 2 2v4"/><path d="M11 8l1.5 2L14 8"/>'),
   layoutV: ic('<rect x="3.5" y="2.5" width="9" height="4.5" rx="1"/><rect x="3.5" y="9" width="9" height="4.5" rx="1"/>'),
   layoutH: ic('<rect x="2.5" y="3.5" width="4.5" height="9" rx="1"/><rect x="9" y="3.5" width="4.5" height="9" rx="1"/>'),
   layoutGrid: ic('<rect x="2.5" y="2.5" width="5" height="5" rx="1"/><rect x="8.5" y="2.5" width="5" height="5" rx="1"/><rect x="2.5" y="8.5" width="5" height="5" rx="1"/><rect x="8.5" y="8.5" width="5" height="5" rx="1"/>'),
@@ -1287,6 +1331,15 @@ function menuAt(x, y, items) {
 /* =============================================================================
    Controls
    ========================================================================== */
+
+// Figma commits a typed value on Enter and on leaving the field, and Enter also
+// gives the focus back. Anything narrower than field() still owes both.
+function commitOn(input, run) {
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+  });
+  input.addEventListener("blur", run);
+}
 
 function iconBtn(icon, opts) {
   var o = opts || {};
@@ -1823,6 +1876,9 @@ var HEX_FORMATS = ["Hex", "RGB", "CSS", "HSL"];
 // itself stops at 260px (see the `resize` case in code.js).
 var CP_TWO_COL_MIN = 420;
 var CP_W_TWO = 420, CP_W_ONE = 240;
+// The ramp above the stop list is drawn with an identity transform, which
+// gradientAngle() reads as 90° — left to right, position 0 at the left edge.
+var RAMP_TRANSFORM = [[1, 0, 0], [0, 1, 0]];
 
 /*
   ctx: { paint, index, prefix:'fill'|'stroke', styleId, styleKind:'PAINT',
@@ -1856,16 +1912,19 @@ function openColorPicker(anchor, ctx) {
 
   var body = h("div", { class: "pop-body", style: "padding:0" });
 
-  /* -- header: paint type + close -- */
+  /* -- header: paint type, the two ramp-wide actions, close -- */
   var hd = h("div", { class: "pop-hd" }, [
     ctx.solidOnly
       ? h("span", { class: "t", text: ctx.title || "Colour" })
       : h("div", { style: "flex:1;min-width:0" }, [
           select(PAINT_TYPES, isGrad ? paint.type : "SOLID", function (v) {
-            popClose();
+            // One popover at a time, and the menu is one: the picker is already
+            // gone by the time this runs, so there is nothing to repaint.
             upd(ctx.prefix + ".toGradient", v, ctx.index);
           }, { menuWidth: 130 })
         ]),
+    isGrad ? iconBtn(I.gradSwap, { title: "Reverse the gradient", onClick: function () { reverseStops(); } }) : null,
+    isGrad ? iconBtn(I.gradRotate, { title: "Rotate 90°", onClick: function () { upd(ctx.prefix + ".gradientRotate", null, ctx.index); } }) : null,
     iconBtn(I.close, { title: "Close", stick: true, onClick: popClose })
   ]);
   body.appendChild(hd);
@@ -1909,12 +1968,18 @@ function openColorPicker(anchor, ctx) {
   });
   palette.appendChild(h("div", { class: "cp-fields" }, [fmtBtn, hexInput, opInput, h("span", { class: "unit", text: "%" })]));
 
-  /* -- gradient stop strip -- */
-  var strip = null;
+  /* -- gradient ramp, and one row per stop below it --
+     The ramp element is built once and only ever repainted: it is what holds the
+     pointer capture for a stop drag, and a capture cannot be taken by an element
+     that has just been replaced. Its listeners go on here for the same reason —
+     wiring them from the painter added one more on every repaint. */
+  var strip = null, stopsSec = null, stopRows = [];
   if (isGrad) {
-    strip = h("div", { class: "gstrip" });
+    strip = h("div", { class: "gstrip", tabindex: "0", title: "Click to add a stop · drag to move it · ⌫ to remove" });
     palette.appendChild(strip);
-    palette.appendChild(h("div", { class: "hint", style: "padding:0 8px 8px", text: "Double-click to add a stop · Backspace to remove" }));
+    stopsSec = h("div", { class: "cp-sec" });
+    palette.appendChild(stopsSec);
+    wireStrip();
   }
 
   /* -- recently used colours: part of the palette, not of the library -- */
@@ -1922,7 +1987,11 @@ function openColorPicker(anchor, ctx) {
   palette.appendChild(recSec);
 
   /* ---- painting ---- */
-  function paintAll() { paintSquare(); paintFields(); paintStrip(); paintRecent(); paintLib(); }
+  // Set by paintLib to its own list filler, so a stop change can move the tick
+  // without rebuilding the search field the focus is sitting in.
+  var relistLib = null;
+
+  function paintAll() { paintSquare(); paintFields(); paintStrip(); paintStops(); paintRecent(); paintLib(); }
 
   function paintSquare() {
     var pure = rgb255ToHex(hsvToRgb({ h: hsv.h, s: 1, v: 1 }));
@@ -1949,47 +2018,235 @@ function openColorPicker(anchor, ctx) {
     }
     if (document.activeElement !== opInput) opInput.value = String(Math.round(currentAlpha() * 100));
   }
+  // Handles only. The ramp reads left to right whatever the gradient's type and
+  // angle: it is a one-dimensional editor of stop positions, and where the
+  // gradient actually points is a canvas matter, shown by the swatch outside.
   function paintStrip() {
     if (!strip) return;
+    strip.style.background = paintCss({
+      type: "GRADIENT_LINEAR", stops: paint.stops, transform: RAMP_TRANSFORM, opacity: 1
+    });
     strip.innerHTML = "";
-    strip.style.background = paintCss({ type: paint.type, stops: paint.stops, transform: paint.transform, opacity: 1 });
     paint.stops.forEach(function (s, i) {
-      var g = h("div", {
+      strip.appendChild(h("div", {
         class: "gs" + (i === stopIx ? " on" : ""),
-        style: "left:" + (s.pos * 100) + "%;background:" + hexAlphaCss(s.color, s.a)
-      });
-      g.addEventListener("pointerdown", function (e) {
-        e.preventDefault(); stop(e);
-        stopIx = i;
-        hsv = rgbToHsv(hexToRgb255(paint.stops[i].color));
-        paintAll();
-        var r = strip.getBoundingClientRect();
-        g.setPointerCapture(e.pointerId);
-        function mv(ev) {
-          var pos = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
-          paint.stops[i].pos = pos;
-          g.style.left = (pos * 100) + "%";
-          upd(ctx.prefix + ".gradientStop", { pos: pos }, ctx.index, i, false);
-        }
-        function up() {
-          g.releasePointerCapture(e.pointerId);
-          g.removeEventListener("pointermove", mv);
-          g.removeEventListener("pointerup", up);
-          upd(ctx.prefix + ".gradientStop", { pos: paint.stops[i].pos }, ctx.index, i, true);
-        }
-        g.addEventListener("pointermove", mv);
-        g.addEventListener("pointerup", up);
-      });
-      strip.appendChild(g);
+        data: { ix: String(i) },
+        title: s.color + " · " + Math.round(s.pos * 100) + "%",
+        style: "left:" + (s.pos * 100) + "%"
+      }, [h("i", { style: "background:" + hexAlphaCss(s.color, s.a) })]));
     });
-    strip.addEventListener("dblclick", function (e) {
+  }
+
+  /*
+    Rows are positional: row i edits paint.stops[i], whichever stop that has
+    become after a re-sort. That keeps them out of the identity business
+    entirely — only a change in how many there are rebuilds them, so an input
+    being typed into survives every repaint around it.
+  */
+  function paintStops() {
+    if (!stopsSec) return;
+    if (stopRows.length !== paint.stops.length) buildStops();
+    stopRows.forEach(function (row, i) {
+      var s = paint.stops[i];
+      row.el.classList.toggle("on", i === stopIx);
+      if (document.activeElement !== row.pos) row.pos.value = String(Math.round(s.pos * 100));
+      if (document.activeElement !== row.hex) row.hex.value = s.color.slice(1);
+      if (document.activeElement !== row.op) row.op.value = String(Math.round(s.a * 100));
+      row.sw.querySelector("i").style.background = hexAlphaCss(s.color, s.a);
+      row.del.disabled = paint.stops.length <= 2;
+    });
+  }
+
+  function buildStops() {
+    stopsSec.innerHTML = "";
+    stopRows = [];
+    stopsSec.appendChild(h("div", { class: "h" }, [
+      h("span", { class: "t", text: "Stops" }),
+      iconBtn(I.plus, { title: "Add a stop", onClick: function () { addStopAt(widestGap()); } })
+    ]));
+    paint.stops.forEach(function (s, i) {
+      var pos = h("input", { type: "text", spellcheck: "false", class: "mono" });
+      var hex = h("input", { type: "text", spellcheck: "false", class: "mono" });
+      var op = h("input", { type: "text", spellcheck: "false", class: "mono" });
+      // The colour goes on the inner <i>, as in every other swatch: the chequers
+      // behind it are what make a half-transparent stop read as one.
+      var sw = h("span", { class: "sw sm" }, [h("i")]);
+      var del = iconBtn(I.minus, { title: "Remove this stop", onClick: function () { removeStop(i); } });
+
+      // Leaving a field it was only read in must not reach the document: an edit
+      // that changes nothing still costs an undo step.
+      commitOn(pos, function () {
+        var v = evalExpr(pos.value);
+        if (isNaN(v) || !paint.stops[i] || v / 100 === paint.stops[i].pos) paintStops();
+        else setStopPos(i, v / 100, false);
+      });
+      commitOn(hex, function () {
+        var n = normHex(hex.value);
+        if (!n || !paint.stops[i] || n === paint.stops[i].color) paintStops();
+        else setStopColor(i, n);
+      });
+      commitOn(op, function () {
+        var v = evalExpr(op.value);
+        if (isNaN(v) || !paint.stops[i] || v / 100 === paint.stops[i].a) paintStops();
+        else setStopAlpha(i, v / 100);
+      });
+
+      var el = h("div", { class: "gsrow" }, [
+        h("div", { class: "gsf pos" }, [pos, h("span", { class: "unit", text: "%" })]),
+        h("div", { class: "gsf col" }, [sw, hex]),
+        h("div", { class: "gsf op" }, [op, h("span", { class: "unit", text: "%" })]),
+        del
+      ]);
+      // Selecting from a row must not rebuild it — the pointer is on its way to
+      // one of its own inputs. Only the highlight and the palette move.
+      el.addEventListener("pointerdown", function () { selectStop(i); });
+      stopsSec.appendChild(el);
+      stopRows.push({ el: el, pos: pos, hex: hex, op: op, sw: sw, del: del });
+    });
+  }
+
+  /*
+    The ramp keeps the pointer capture for the whole drag. Taking it on the
+    handle instead is what used to throw InvalidStateError: selecting a stop
+    repaints the ramp, so by the time the capture was asked for, the handle the
+    pointer went down on had already been replaced.
+  */
+  function wireStrip() {
+    strip.addEventListener("pointerdown", function (e) {
+      e.preventDefault(); stop(e);
+      strip.focus();
       var r = strip.getBoundingClientRect();
-      var pos = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-      var near = paint.stops[0];
-      paint.stops.push({ color: near.color, a: near.a, pos: pos });
-      upd(ctx.prefix + ".gradientStop", { pos: pos, color: near.color, a: near.a }, ctx.index, paint.stops.length - 1, true);
-      paintStrip();
+      var at = function (ev) { return Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)); };
+      var handle = e.target && e.target.closest ? e.target.closest(".gs") : null;
+      // Bare ramp adds a stop where it was clicked, as Figma does, and hands the
+      // drag straight to it.
+      if (handle) selectStop(+handle.dataset.ix); else addStopAt(at(e));
+
+      var moved = false;
+      strip.setPointerCapture(e.pointerId);
+      function mv(ev) { moved = true; setStopPos(stopIx, at(ev), true); }
+      function up(ev) {
+        strip.releasePointerCapture(e.pointerId);
+        strip.removeEventListener("pointermove", mv);
+        strip.removeEventListener("pointerup", up);
+        strip.removeEventListener("pointercancel", up);
+        if (moved) setStopPos(stopIx, at(ev), false);
+      }
+      strip.addEventListener("pointermove", mv);
+      strip.addEventListener("pointerup", up);
+      strip.addEventListener("pointercancel", up);
     });
+    strip.addEventListener("keydown", function (e) {
+      if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); removeStop(stopIx); }
+    });
+  }
+
+  /* ---- the stop model: sorted by position, on both sides of the wire ---- */
+
+  // Same rule as the document side, so the index sent with an edit still means
+  // the same stop when it lands: stops live in position order, and a drag past a
+  // neighbour changes places with it. Follow the stop, not the slot it was in.
+  function resort(keep) {
+    paint.stops.sort(function (a, b) { return a.pos - b.pos; });
+    var at = paint.stops.indexOf(keep);
+    if (at > -1) stopIx = at;
+  }
+
+  function selectStop(i) {
+    if (i < 0 || i >= paint.stops.length || i === stopIx) return;
+    stopIx = i;
+    hsv = rgbToHsv(hexToRgb255(paint.stops[i].color));
+    paintSquare(); paintFields(); paintStrip(); paintStops();
+    // The tick in the styles-and-tokens list belongs to the selected stop.
+    // Refilling only the list keeps the search field, and its focus, intact.
+    if (relistLib) relistLib();
+  }
+
+  function setStopPos(i, pos, live) {
+    var s = paint.stops[i];
+    if (!s) return;
+    s.pos = Math.max(0, Math.min(1, pos));
+    upd(ctx.prefix + ".gradientStop", { pos: s.pos }, ctx.index, i, !live);
+    resort(paint.stops[stopIx]);
+    paintStrip(); paintStops();
+  }
+  function setStopColor(i, raw) {
+    var n = normHex(raw);
+    if (!n || !paint.stops[i]) { paintStops(); return; }
+    paint.stops[i].color = n;
+    upd(ctx.prefix + ".gradientStop", { color: n }, ctx.index, i, true);
+    rememberColor(n);
+    if (i === stopIx) { hsv = rgbToHsv(hexToRgb255(n)); paintSquare(); paintFields(); }
+    paintStrip(); paintStops(); paintRecent();
+  }
+  function setStopAlpha(i, a) {
+    if (!paint.stops[i]) { paintStops(); return; }
+    paint.stops[i].a = Math.max(0, Math.min(1, a));
+    upd(ctx.prefix + ".gradientStop", { a: paint.stops[i].a }, ctx.index, i, true);
+    if (i === stopIx) { paintSquare(); paintFields(); }
+    paintStrip(); paintStops();
+  }
+
+  // A new stop takes the colour the ramp already shows at that point, so adding
+  // one never changes what the gradient looks like — only what can be moved.
+  function addStopAt(pos) {
+    pos = Math.max(0, Math.min(1, pos));
+    var s = sampleRamp(pos);
+    var at = 0;
+    while (at < paint.stops.length && paint.stops[at].pos <= pos) at++;
+    paint.stops.splice(at, 0, s);
+    stopIx = at;
+    hsv = rgbToHsv(hexToRgb255(s.color));
+    upd(ctx.prefix + ".gradientStopAdd", { pos: s.pos, color: s.color, a: s.a }, ctx.index, at, true);
+    paintSquare(); paintFields(); paintStrip(); paintStops();
+  }
+
+  function removeStop(i) {
+    if (paint.stops.length <= 2 || !paint.stops[i]) return;   // two ends, always
+    paint.stops.splice(i, 1);
+    upd(ctx.prefix + ".gradientStopRemove", null, ctx.index, i, true);
+    stopIx = Math.min(i, paint.stops.length - 1);
+    hsv = rgbToHsv(hexToRgb255(paint.stops[stopIx].color));
+    paintSquare(); paintFields(); paintStrip(); paintStops();
+  }
+
+  function reverseStops() {
+    var keep = paint.stops[stopIx];
+    paint.stops.forEach(function (s) { s.pos = 1 - s.pos; });
+    resort(keep);
+    upd(ctx.prefix + ".gradientReverse", null, ctx.index);
+    paintStrip(); paintStops();
+  }
+
+  // Where the + button puts a stop when no ramp position was pointed at.
+  function widestGap() {
+    var best = 0.5, span = -1;
+    for (var i = 0; i < paint.stops.length - 1; i++) {
+      var d = paint.stops[i + 1].pos - paint.stops[i].pos;
+      if (d > span) { span = d; best = paint.stops[i].pos + d / 2; }
+    }
+    return best;
+  }
+
+  function sampleRamp(pos) {
+    var st = paint.stops, lo = st[0], hi = st[st.length - 1];
+    if (pos <= lo.pos) hi = lo;
+    else if (pos >= hi.pos) lo = hi;
+    else for (var i = 0; i < st.length - 1; i++) {
+      if (pos >= st[i].pos && pos <= st[i + 1].pos) { lo = st[i]; hi = st[i + 1]; break; }
+    }
+    var span = hi.pos - lo.pos;
+    var t = span > 0 ? (pos - lo.pos) / span : 0;
+    var c1 = hexToRgb255(lo.color), c2 = hexToRgb255(hi.color);
+    return {
+      color: rgb255ToHex({
+        r: c1.r + (c2.r - c1.r) * t,
+        g: c1.g + (c2.g - c1.g) * t,
+        b: c1.b + (c2.b - c1.b) * t
+      }),
+      a: lo.a + (hi.a - lo.a) * t,
+      pos: pos
+    };
   }
   function paintLib() {
     libSec.innerHTML = "";
@@ -2035,8 +2292,11 @@ function openColorPicker(anchor, ctx) {
         list.appendChild(h("div", { class: "mgroup", text: col.name + (col.remote ? "  ·  " + (col.library || "library") : "") }));
         vars.slice(0, 200).forEach(function (v) {
           var mode = col.defaultModeId && v.byMode ? v.byMode[col.defaultModeId] : null;
+          // A gradient binds a token per stop, so the tick belongs to the stop
+          // being edited, not to the paint as a whole.
+          var bound = isGrad ? (paint.stopVars || [])[stopIx] : paint.colorVar;
           list.appendChild(h("div", {
-            class: "tok-row" + (paint.colorVar === v.id ? " on" : ""), title: v.name,
+            class: "tok-row" + (bound === v.id ? " on" : ""), title: v.name,
             onclick: function () {
               popClose();
               send({ type: "bindVariable", field: ctx.prefix, variableId: v.id, index: ctx.index, sub: isGrad ? stopIx : null });
@@ -2056,6 +2316,7 @@ function openColorPicker(anchor, ctx) {
       if (!ctx.solidOnly) list.appendChild(libScanRow());
     }
     search.addEventListener("input", fillList);
+    relistLib = fillList;
     fillList();
   }
 
@@ -2080,14 +2341,14 @@ function openColorPicker(anchor, ctx) {
     if (!n) return;
     hsv = rgbToHsv(hexToRgb255(n));
     if (isGrad) paint.stops[stopIx].color = n; else paint.color = n;
-    paintSquare(); paintFields(); paintStrip();
+    paintSquare(); paintFields(); paintStrip(); paintStops();
     pushColor(n, live);
     if (!live) rememberColor(n);
   }
   function setAlpha(a, live) {
     a = Math.max(0, Math.min(1, a));
     if (isGrad) paint.stops[stopIx].a = a; else paint.opacity = a;
-    paintSquare(); paintFields();
+    paintSquare(); paintFields(); paintStrip(); paintStops();
     pushAlpha(a, live);
   }
 
@@ -2122,15 +2383,6 @@ function openColorPicker(anchor, ctx) {
     var v = evalExpr(opInput.value);
     if (!isNaN(v)) setAlpha(v / 100, false); else paintFields();
   });
-
-  if (isGrad) {
-    body.addEventListener("keydown", function (e) {
-      if ((e.key === "Backspace" || e.key === "Delete") && paint.stops.length > 2 &&
-          e.target === body) {
-        popClose();
-      }
-    });
-  }
 
   var pop = popOpen(anchor, body, {
     width: twoCol ? CP_W_TWO : CP_W_ONE, align: "right", class: "cp"
