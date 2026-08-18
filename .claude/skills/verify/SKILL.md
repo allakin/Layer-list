@@ -11,7 +11,7 @@ Run everything:
 npm test
 ```
 
-57 files must pass: 2 integrity checks, 17 main-thread tests, 38 panel tests.
+59 files must pass: 2 integrity checks, 18 main-thread tests, 39 panel tests.
 
 ## Narrow it down
 

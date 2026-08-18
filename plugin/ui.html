@@ -2651,13 +2651,24 @@ function rowIndex(id) {
 
 // Rows below a selected layer get a faint wash, so the selection's subtree
 // reads as one block — the same cue Figma gives.
+//
+// The selection itself is painted per *row*, not per id, because one layer can
+// hold several rows: a recursive instance turns up inside its own subtree, and
+// each of those repeats carries the very same node id. Highlighting all of them
+// said "eight layers are selected" when one was — and the selection badge, the
+// inspector and every edit meant that one. Only the first occurrence, which is
+// the layer where it actually lives and the one every id lookup here resolves
+// to, takes the paint; the repeats keep their ↻ badge and the subtree wash.
 function markSubtrees() {
   var sel = {};
   ST.selIds.forEach(function (id) { sel[id] = true; });
+  var painted = {};
   var stack = [];
   ST.rows.forEach(function (r) {
     while (stack.length && r.depth <= stack[stack.length - 1]) stack.pop();
     r.inSelection = stack.length > 0;
+    r.selected = !!sel[r.id] && !painted[r.id];
+    if (r.selected) painted[r.id] = true;
     if (sel[r.id]) stack.push(r.depth);
   });
 }
@@ -2696,7 +2707,7 @@ function renderTree() {
 }
 
 function layerRow(r, i) {
-  var sel = ST.selIds.indexOf(r.id) > -1;
+  var sel = !!r.selected;                        // set by markSubtrees, once per id
   // A hidden, locked or masking layer keeps its badge visible, so that row needs
   // to reserve the strip on the right; every other row gives it up.
   var hasStick = !r.visible || r.locked || r.mask;
@@ -2797,6 +2808,9 @@ function onRowPointerDown(e, r, i) {
     applySelection([r.id], i);
   } else {
     ST.anchorIndex = i;
+    // A repeat of an already-selected layer: there is nothing to select — it is
+    // the same node — so say where it lives instead of ignoring the click.
+    if (!r.selected) scrollSelectionIntoView();
   }
 
   beginDragWatch(e, r);

@@ -144,6 +144,23 @@ style preference.
    through `errText()`.
    → `tests/plugin/style-backed-paint.js`
 
+   A refused **write** is the same story: a `figma.notify` toast is gone in a few
+   seconds, cannot be copied, and sits over the canvas rather than next to the
+   control — so "I typed a padding and nothing happened" left nothing to read.
+   Everything that fails goes through `reportFailure()`, which says it in both
+   places at once and names the key, the layer and the reason. On the commit only,
+   so a scrub does not fill the bar with a line per pointer move.
+   → `tests/plugin/style-backed-paint.js`
+
+   A **token** fails in two places, and both used to read as something else. The
+   import of a library-only variable (`libvar:<key>`, resolved at bind time) threw
+   past `bindVariable` into the message router, which reported `[bindVariable]` and
+   a stack — a message type, to someone who clicked a token in a picker. And the
+   bind itself fails per layer *and* per field, where a padding control stands for
+   two fields across the whole selection: "Can't bind token" alone could not tell
+   "this layer has no auto layout" from "this token is gone".
+   → `tests/plugin/library-token-apply.js`
+
 8. **`componentProperties` is unordered.** Take the order from the main
    component's `componentPropertyDefinitions`; fall back to the id in the
    property key, then a natural sort.
@@ -160,6 +177,16 @@ style preference.
     deep expand blows the stack. `.lrow` is as wide as its content, so a pane next
     to it must never take its width from what it holds.
     → `tests/plugin/self-nesting-layer.js`, `tests/ui/deep-rows-keep-inspector.js`
+
+    So **one layer holds several rows, and the selection is painted per row.**
+    Comparing `r.id` against `ST.selIds` lit up eight rows for one selected
+    layer — the panel read as a multi-selection while the badge, the inspector
+    and every edit meant the single node. `markSubtrees()` marks `r.selected` on
+    the first occurrence only, which is where the layer lives and what every id
+    lookup in the tree (`rowIndex`, `scrollSelectionIntoView`) already resolves
+    to; the repeats keep the `↻` badge and the subtree wash, and clicking one
+    reveals the row that holds the paint rather than doing nothing at all.
+    → `tests/ui/repeated-layer-selection.js`
 
 11. **A text layer's name and its text are two different strings.** Figma keeps
     them in step only until one of them is edited, so a layer called `Label` can
@@ -379,7 +406,7 @@ watch the window position have to outwait `POS_POLL_MS` plus the save debounce.
 npm test
 ```
 
-57 files: 2 integrity checks, 17 main-thread tests, 38 panel tests. All must pass.
+59 files: 2 integrity checks, 18 main-thread tests, 39 panel tests. All must pass.
 
 Assertions go through `expect(label, condition)` from either harness. A test that
 prints numbers without asserting them can pass while measuring nothing — that

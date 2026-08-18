@@ -1136,6 +1136,19 @@ function errText(e) {
 }
 
 /*
+  An edit the document refuses. The toast says it over the canvas and is gone in a
+  few seconds; the bar keeps it next to the control that did not work, and hands it
+  over on one click. Both, because the toast is what the user is looking at and the
+  bar is what they can copy — "I typed a padding / applied a token and nothing
+  happened" left nothing to read at all.
+*/
+function reportFailure(what, detail) {
+  const line = what + " — " + detail;
+  figma.notify(line, { error: true });
+  figma.ui.postMessage({ type: "error", message: line, stack: null });
+}
+
+/*
   Every key that writes the paint array itself is named "fill.x" or "stroke.x".
   The ones that only touch a stroke's geometry (`strokeWeight`, `strokeCap`, …)
   have no dot in them, and applying a style is `style.fill` — so neither is caught
@@ -3040,16 +3053,29 @@ const TEXT_VAR_FIELDS = new Set([
 // `field` may be an array: the padding and corner-radius controls each stand in
 // for several node fields, and Figma binds all of them in one go.
 async function bindVariable(nodes, field, variableId, index, sub) {
-  const variable = await resolveVariableForBinding(variableId);
+  let variable;
+  try {
+    // A library token is imported by key, and the key can fail on its own: the
+    // variable was unpublished or renamed, or the file no longer subscribes to
+    // the library. Thrown from here it used to escape as a bare "Plugin error"
+    // with a stack, which says nothing about the token that would not come.
+    variable = await resolveVariableForBinding(variableId);
+  } catch (e) {
+    reportFailure("Can't apply that token", errText(e));
+    return;
+  }
   const fields = Array.isArray(field) ? field : [field];
-  let failed = null;
+  const failures = [];
   for (const node of nodes) {
     for (const one of fields) {
       const err = await bindOne(node, one, variable, index, sub);
-      if (err) failed = err;
+      // Which layer and which field: a padding control binds four of them across
+      // however many layers are selected, and "Can't bind token" alone left no way
+      // to tell "this layer has no auto layout" from "this token is gone".
+      if (err) failures.push(safe(() => node.name, "a layer") + " · " + one + ": " + err);
     }
   }
-  if (failed) figma.notify("Can't bind token: " + failed, { error: true });
+  if (failures.length) reportFailure("Can't apply that token", failures.join(" · "));
   figma.commitUndo();
 }
 
@@ -3342,7 +3368,11 @@ async function handleMessage(msg) {
           ? "Style detached — that colour is the layer's own now"
           : detached + " styles detached");
       }
-      if (failures.length === nodes.length && failures.length) {
+      // Only on the commit: a scrub would otherwise report one line per pointer
+      // move, and it ends with a commit anyway.
+      if (failures.length && msg.commit !== false) {
+        reportFailure("Could not set " + msg.key, failures.join(" · "));
+      } else if (failures.length === nodes.length && failures.length) {
         figma.notify(failures[0], { error: true });
       } else if (failures.length) {
         figma.notify(failures.length + " layers couldn't be updated");

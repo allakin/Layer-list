@@ -156,6 +156,22 @@ const upd = (key, value, index, commit) =>
   P.expect("and says what actually went wrong, not “undefined”",
     /Only solid paints/.test(notes()[0]) && !/undefined/.test(notes()[0]));
 
+  /* A toast is gone in a few seconds and cannot be copied, so a refused edit —
+     "I typed a padding and nothing happened" — has to survive in the panel's own
+     error bar, naming the key as well as the layer. */
+  const bar = P.posted.filter((m) => m.type === "error").map((m) => m.message);
+  console.log("error bar     ->", JSON.stringify(bar));
+  P.expect("the refused edit also reaches the panel's error bar", bar.length === 1);
+  P.expect("and names the key that was refused", /fill\.color/.test(bar[0]));
+  P.expect("and the reason", /Only solid paints/.test(bar[0]));
+
+  /* Not once per pointer move: a live drag would fill the bar with a line each. */
+  P.posted.length = 0;
+  await upd("fill.color", "#FFFFFF", 0, false);
+  console.log("mid-drag bar  ->", JSON.stringify(P.posted.filter((m) => m.type === "error").map((m) => m.message)));
+  P.expect("a live drag reports nothing to the bar",
+    !P.posted.some((m) => m.type === "error"));
+
   P.posted.length = 0;
   thrown = { code: 5, detail: "no message property" };      // an object this time
   await upd("fill.color", "#FFFFFF", 0);
